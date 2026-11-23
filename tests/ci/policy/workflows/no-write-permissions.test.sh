@@ -13,8 +13,10 @@
 #   * a reusable workflow is judged by its own file, and the caller by its.
 #
 # So every workflow declares its permissions at the top, each job that declares its
-# own does so with read scopes only, and anything else is a failure. There is no list
-# of exceptions: a job that needs a write scope is a decision for a pull request that
+# own does so with read scopes only, and anything else is a failure. The one exception
+# is `security-events: write` in codeql.yml, which is how CodeQL uploads its results and
+# which that workflow holds beside a read-only token, no secret and no tool installed.
+# Any other write scope, or this one anywhere else, is a decision for a pull request that
 # changes this test and says why.
 #
 # For the same reason nothing here cancels another run. A job that cancels the other
@@ -58,6 +60,10 @@ import sys
 import yaml
 
 
+# (workflow file, scope): the write scopes a workflow may grant to a job of its own.
+ALLOWED = {("codeql.yml", "security-events: write")}
+
+
 def scopes(value):
     """The write scopes a `permissions:` value grants, or None when it is not declared."""
     if value is None:
@@ -85,7 +91,8 @@ for path in files:
     for job_id, job in (spec.get("jobs") or {}).items():
         own = scopes(job.get("permissions")) if isinstance(job, dict) else None
         for scope in sorted(own or ()):
-            print(f"{name}: job {job_id} grants {scope}")
+            if (name, scope) not in ALLOWED:
+                print(f"{name}: job {job_id} grants {scope}")
 PY
 }
 
@@ -131,6 +138,30 @@ jobs:
 check "a workflow with no permissions is reported" \
 	"w.yml: the workflow declares no permissions, so it inherits the repository default" "$(audit "$(plant none 'jobs:
   j: {runs-on: x}')")"
+plant_as() { # <dir> <file name> <workflow text>
+	mkdir -p "$WORK/$1"
+	printf '%s\n' "$3" > "$WORK/$1/$2"
+	echo "$WORK/$1"
+}
+codeql_job='permissions:
+  contents: read
+jobs:
+  j:
+    permissions:
+      contents: read
+      security-events: write
+    runs-on: x'
+check "security-events: write on a job of codeql.yml passes" "" "$(audit "$(plant_as cq codeql.yml "$codeql_job")")"
+check "the same scope in any other workflow is reported" "other.yml: job j grants security-events: write" "$(audit "$(plant_as cq2 other.yml "$codeql_job")")"
+check "another write scope in codeql.yml is reported" "codeql.yml: job j grants contents: write" \
+	"$(audit "$(plant_as cq3 codeql.yml "${codeql_job/contents: read
+      security-events/contents: write
+      security-events}")")"
+check "security-events: write on the workflow of codeql.yml is still reported" "codeql.yml: the workflow grants security-events: write" \
+	"$(audit "$(plant_as cq4 codeql.yml "permissions:
+  security-events: write
+jobs:
+  j: {runs-on: x}")")"
 check "a scope written as something unreadable is reported" "w.yml: the workflow grants unreadable: ['x']" "$(audit "$(plant odd 'permissions: [x]
 jobs:
   j: {runs-on: x}')")"

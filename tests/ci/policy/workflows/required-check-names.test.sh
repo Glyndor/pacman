@@ -50,10 +50,17 @@ shell / shellcheck
 shell / test
 workflow-lint / workflow-lint"
 
+# The checks of the analysis of CodeQL, which the ruleset may come to require as code scanning and not by name. They
+# are produced by codeql.yml and by nothing else, and that workflow, unlike the rest, runs on a push to main and weekly.
+ADVISORY="Analyze (actions)
+Analyze (python)"
+ADVISORY_FILE="codeql.yml"
+ADVISORY_EVENTS="pull_request push schedule"
+
 # names <root>: the check names the workflows of the tree produce, one per line with the
 # file that produces it; and one line per offence of the event rule.
 names() { # $1=root
-	python3 -I - "$1" "$HERE/tests/fixtures/ci/workflow-files.py" <<'PY'
+	python3 -I - "$1" "$HERE/tests/fixtures/ci/workflow-files.py" "$ADVISORY_FILE" "$ADVISORY_EVENTS" <<'PY'
 import sys
 
 root, helper = sys.argv[1:3]
@@ -68,7 +75,8 @@ for path in enumerate_files(root):
         continue
     spec = load(root, path)
     events = triggers(spec)
-    if events != {"pull_request"}:
+    allowed = set(sys.argv[4].split()) if path.rsplit("/", 1)[1] == sys.argv[3] else {"pull_request"}
+    if events != allowed:
         print(f"OFFENCE {path}: runs on {', '.join(sorted(events)) or 'nothing'}, not on pull_request alone")
     for job_id, job in (spec.get("jobs") or {}).items():
         uses = str(job.get("uses", ""))
@@ -85,7 +93,9 @@ offences() { # $1=root: the offences, then the duplicated names, then a differen
 	out="$(names "$1")"
 	printf '%s\n' "$out" | grep '^OFFENCE ' | sed 's/^OFFENCE //' || true
 	printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort | uniq -d | sed 's/^/produced more than once: /' || true
-	diff <(printf '%s\n' "$REQUIRED" | sort) <(printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort -u) \
+	printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | awk -F'\t' -v only="$ADVISORY_FILE" -v adv="$(printf '%s' "$ADVISORY" | tr '\n' '|')" \
+		'index("|" adv "|", "|" $1 "|") && $2 !~ only "$" { print "an analysis check produced outside " only ": " $1 }' || true
+	diff <(printf '%s\n%s\n' "$REQUIRED" "$ADVISORY" | sort) <(printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort -u) \
 		| grep '^[<>]' | sed 's/^< /missing from the workflows: /; s/^> /not in the list of required names: /' || true
 }
 
@@ -120,6 +130,12 @@ sed -i 's/^    name: gate$/    name: verdict/' "$d/.github/workflows/tests.yml"
 check "a renamed gate is reported on both sides of the list" \
 	"$(printf 'missing from the workflows: gate\nnot in the list of required names: verdict')" "$(offences "$d")"
 
+d="$(cp_repo analysis)"
+printf 'on: pull_request\njobs:\n  a:\n    name: Analyze (actions)\n    runs-on: x\n    steps: []\n' > "$d/.github/workflows/other.yml"
+check "an analysis check produced by another workflow is reported" "1" "$(offences "$d" | grep -c 'an analysis check produced outside codeql.yml: Analyze (actions)')"
+d="$(cp_repo codeql-dispatch)"
+sed -i 's/^  schedule:$/  workflow_dispatch:\n  schedule:/' "$d/.github/workflows/codeql.yml"
+check "a manual trigger on codeql.yml is reported" "1" "$(offences "$d" | grep -c 'codeql.yml: runs on')"
 d="$(mk dispatch other.yml 'on: [pull_request, workflow_dispatch]
 jobs:
   a:
