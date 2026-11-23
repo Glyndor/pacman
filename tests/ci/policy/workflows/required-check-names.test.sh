@@ -20,6 +20,7 @@
 #
 # Requires: python3 with PyYAML.
 set -euo pipefail
+export LC_ALL=C
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 WORK="$(mktemp -d)"
@@ -50,21 +51,25 @@ shell / shellcheck
 shell / test
 workflow-lint / workflow-lint"
 
-# The checks of the analysis of CodeQL, which the ruleset may come to require as code scanning and not by name. They
-# are produced by codeql.yml and by nothing else, and that workflow, unlike the rest, runs on a push to main and weekly.
-ADVISORY="Analyze (actions)
-Analyze (python)"
-ADVISORY_FILE="codeql.yml"
-ADVISORY_EVENTS="pull_request push schedule"
+# The workflows that are not checks of a pull request, each with the events it may run on and the names its jobs produce
+# (file, events, names). A name here is produced by that file and by nothing else, and none of them is a required check: the
+# analysis of CodeQL may come to be required as code scanning, not by name, and the publication and the verifications of the
+# published repository are run by the schedule and by hand, from main. Any other workflow runs on pull_request alone.
+NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)
+publish.yml	schedule workflow_dispatch	admit|build|sign|publish|verify / served|verify / install
+verify-live.yml	schedule workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer
+rehearsal.yml	schedule workflow_dispatch	rehearsal"
+NOT_PR_NAMES="$(printf '%s\n' "$NOT_PR" | cut -f3 | tr '|' '\n')"
 
 # names <root>: the check names the workflows of the tree produce, one per line with the
 # file that produces it; and one line per offence of the event rule.
 names() { # $1=root
-	python3 -I - "$1" "$HERE/tests/fixtures/ci/workflow-files.py" "$ADVISORY_FILE" "$ADVISORY_EVENTS" <<'PY'
+	python3 -I - "$1" "$HERE/tests/fixtures/ci/workflow-files.py" "$NOT_PR" <<'PY'
 import sys
 
 root, helper = sys.argv[1:3]
 exec(open(helper).read())
+TABLE = {row.split("\t")[0]: (row.split("\t")[1], row.split("\t")[2].split("|")) for row in sys.argv[3].split("\n")}
 INNER = {}
 for path in enumerate_files(root):
     if path.startswith(".github/workflows/reusable-") and path.endswith(".yml"):
@@ -75,7 +80,9 @@ for path in enumerate_files(root):
         continue
     spec = load(root, path)
     events = triggers(spec)
-    allowed = set(sys.argv[4].split()) if path.rsplit("/", 1)[1] == sys.argv[3] else {"pull_request"}
+    allowed = {"pull_request"}
+    if path.rsplit("/", 1)[1] in TABLE:
+        allowed = set(TABLE[path.rsplit("/", 1)[1]][0].split())
     if events != allowed:
         print(f"OFFENCE {path}: runs on {', '.join(sorted(events)) or 'nothing'}, not on pull_request alone")
     for job_id, job in (spec.get("jobs") or {}).items():
@@ -93,10 +100,15 @@ offences() { # $1=root: the offences, then the duplicated names, then a differen
 	out="$(names "$1")"
 	printf '%s\n' "$out" | grep '^OFFENCE ' | sed 's/^OFFENCE //' || true
 	printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort | uniq -d | sed 's/^/produced more than once: /' || true
-	printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | awk -F'\t' -v only="$ADVISORY_FILE" -v adv="$(printf '%s' "$ADVISORY" | tr '\n' '|')" \
-		'index("|" adv "|", "|" $1 "|") && $2 !~ only "$" { print "an analysis check produced outside " only ": " $1 }' || true
-	diff <(printf '%s\n%s\n' "$REQUIRED" "$ADVISORY" | sort) <(printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort -u) \
-		| grep '^[<>]' | sed 's/^< /missing from the workflows: /; s/^> /not in the list of required names: /' || true
+	printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | while IFS=$'\t' read -r name file; do
+		owner="$(printf '%s\n' "$NOT_PR" | awk -F'\t' -v n="$name" '{ split($3, names, "|"); for (i in names) if (names[i] == n) print $1 }')"
+		if [ -n "$owner" ] && [ "${file##*/}" != "$owner" ]; then echo "a check of $owner produced outside it: $name"; fi
+	done
+	local produced
+	produced="$(printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort -u)"
+	# A required name has to be produced; a name of the table may be absent (its workflow may not exist yet) but nothing else may be extra.
+	comm -23 <(printf '%s\n' "$REQUIRED" | sort) <(printf '%s\n' "$produced") | sed 's/^/missing from the workflows: /'
+	comm -13 <(printf '%s\n%s\n' "$REQUIRED" "$NOT_PR_NAMES" | sort -u) <(printf '%s\n' "$produced") | sed 's/^/not in the list of required names: /' || true
 }
 
 mk() { # <name> <relative workflow file> <text>
@@ -132,10 +144,31 @@ check "a renamed gate is reported on both sides of the list" \
 
 d="$(cp_repo analysis)"
 printf 'on: pull_request\njobs:\n  a:\n    name: Analyze (actions)\n    runs-on: x\n    steps: []\n' > "$d/.github/workflows/other.yml"
-check "an analysis check produced by another workflow is reported" "1" "$(offences "$d" | grep -c 'an analysis check produced outside codeql.yml: Analyze (actions)')"
+check "a check of the analysis produced by another workflow is reported" "1" "$(offences "$d" | grep -c 'a check of codeql.yml produced outside it: Analyze (actions)')"
 d="$(cp_repo codeql-dispatch)"
 sed -i 's/^  schedule:$/  workflow_dispatch:\n  schedule:/' "$d/.github/workflows/codeql.yml"
 check "a manual trigger on codeql.yml is reported" "1" "$(offences "$d" | grep -c 'codeql.yml: runs on')"
+d="$(mk publish-ok publish.yml 'on: [schedule, workflow_dispatch]
+jobs:
+  admit:
+    runs-on: x
+    steps: []')"
+check "publish.yml on the schedule and by hand is accepted" "" "$(offences "$d" | grep 'publish.yml' || true)"
+d="$(mk publish-push publish.yml 'on: [schedule, workflow_dispatch, push]
+jobs:
+  admit:
+    runs-on: x
+    steps: []')"
+check "a push trigger on publish.yml is reported" "1" "$(offences "$d" | grep -c 'publish.yml: runs on')"
+d="$(mk publish-pr publish.yml 'on: [schedule, workflow_dispatch, pull_request]
+jobs:
+  admit:
+    runs-on: x
+    steps: []')"
+check "a pull_request trigger on publish.yml is reported, since it holds secrets" "1" "$(offences "$d" | grep -c 'publish.yml: runs on')"
+d="$(cp_repo name-in-tests)"
+sed -i 's/^    name: gate$/    name: publish/' "$d/.github/workflows/tests.yml"
+check "the name of a job of publish.yml produced by tests.yml is reported" "1" "$(offences "$d" | grep -c 'a check of publish.yml produced outside it: publish')"
 d="$(mk dispatch other.yml 'on: [pull_request, workflow_dispatch]
 jobs:
   a:

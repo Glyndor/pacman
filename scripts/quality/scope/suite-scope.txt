@@ -182,6 +182,10 @@ tests/ci/policy/workflows/no-write-permissions.test.sh
 	.github/workflows/**
 	tests/ci/policy/workflows/**
 
+tests/ci/policy/workflows/secret-jobs-are-guarded.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+
 tests/ci/policy/workflows/persist-credentials.test.sh
 	.github/workflows/**
 	tests/ci/policy/workflows/**
