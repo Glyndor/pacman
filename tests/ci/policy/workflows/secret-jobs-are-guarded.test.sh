@@ -6,89 +6,29 @@
 # names with `environment: publish`, and, against accidents, a first step that fails unless the event is a scheduled or
 # manual run on exactly refs/heads/main.
 #
-# So every job that names a secret (`secrets.X` other than the GITHUB_TOKEN, `secrets: inherit`) carries both, the guard
-# as its first step and with the exact form below; a secret held by the whole workflow (`env:` of the workflow) counts as
-# held by every job, and is refused. The rule is run over planted workflows first, one for each way round it.
+# So every job that holds a secret carries both, the guard as its first step and in exactly the form below. A job holds a secret
+# when any expression of it (every `${{ }}` is read by a parser that knows quoted strings, and so is an `if`) refers to the
+# `secrets` context in any way but exactly `secrets.GITHUB_TOKEN`: an index, `toJSON(secrets)`, the whole context, a wildcard,
+# another capitalisation, spaces around the dot. A caller of a reusable workflow holds them when it passes `secrets:` that is not
+# empty, by `inherit` or by a map. A secret held by the whole workflow (`env:` of the workflow) counts as held by every job, and
+# is refused. The guard is compared whole, after normalising its text, with a canonical step that has no key but name, env and
+# run; `continue-on-error` on the job and a default shell on the job or on the workflow are refused too, since they change how the
+# guard runs. An `if` is not analysed (no regular expression of status functions can follow every way to write one): a job that
+# holds a secret, and each step after the guard, carries none unless its whole value is on a closed list, which is empty. A `uses`
+# in such a job is exactly one of three actions pinned by commit, none with a `pre` hook that would run before the guard, or a
+# local action. The rule is run over planted workflows first, one for each way round it.
+#
+# This suite holds the basic rules; the others are in secret-jobs-forms.test.sh (every way of naming a secret and of writing a job),
+# secret-jobs-guard.test.sh (the guard, what the steps inherit, the keys) and secret-jobs-if-and-uses.test.sh (`if` and `uses`).
 #
 # Requires: python3 with PyYAML.
 # shellcheck disable=SC2016 # the text of workflows, with ${{ }} meant literally
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-pass=0
-fail=0
-check() { # <description> <expected> <actual>
-	if [ "$2" = "$3" ]; then
-		pass=$((pass + 1))
-		echo "ok    $1"
-	else
-		fail=$((fail + 1))
-		echo "FAIL  $1"
-		echo "        expected: $2"
-		echo "        actual:   $3"
-	fi
-}
+# shellcheck disable=SC1091 # the shared fixtures
+. "$HERE/tests/fixtures/ci/secret-plants.sh"
 
-audit() { # $1=workflows dir: one line per offence
-	python3 -I - "$1" <<'PY'
-import glob
-import os
-import re
-import sys
-
-import yaml
-
-GUARD_EVENTS = "case \"$EVENT\" in schedule | workflow_dispatch) ;; *)"
-GUARD_REF = '[ "$REF" = refs/heads/main ]'
-SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z0-9_]+")
-files = sorted(glob.glob(os.path.join(sys.argv[1], "*.y*ml")))
-if not files:
-    print("no workflow was read, so nothing was judged")
-for path in files:
-    name = os.path.basename(path)
-    with open(path) as fh:
-        spec = yaml.safe_load(fh) or {}
-    if SECRET.search(yaml.dump({k: v for k, v in spec.items() if k != "jobs"})):
-        print(f"{name}: a secret is named outside any job, so every job holds it")
-    for job_id, job in (spec.get("jobs") or {}).items():
-        text = yaml.dump(job)
-        holds = bool(SECRET.search(text)) or job.get("secrets") == "inherit"
-        if not holds:
-            continue
-        if job.get("environment") != "publish":
-            print(f"{name}: job {job_id} reads a secret and does not declare environment: publish")
-        steps = job.get("steps") or []
-        first = (steps[0].get("run") or "") if steps and isinstance(steps[0], dict) else ""
-        env = (steps[0].get("env") or {}) if steps and isinstance(steps[0], dict) else {}
-        guard_ok = (
-            GUARD_EVENTS in first and GUARD_REF in first and "exit 1" in first
-            and env.get("EVENT") == "${{ github.event_name }}" and env.get("REF") == "${{ github.ref }}"
-            and "if" not in steps[0]
-        )
-        if not guard_ok:
-            print(f"{name}: job {job_id} reads a secret and its first step is not the guard of event and ref")
-PY
-}
-plant() { # <name> <workflow text>
-	mkdir -p "$WORK/$1"
-	printf '%s\n' "$2" > "$WORK/$1/w.yml"
-	echo "$WORK/$1"
-}
-GUARD='      - name: Refuse any event or ref that is not allowed
-        env:
-          EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          case "$EVENT" in schedule | workflow_dispatch) ;; *) echo no; exit 1 ;; esac
-          [ "$REF" = refs/heads/main ] || { echo no; exit 1; }'
-job() { # <environment line> <guard> <extra step>
-	printf 'jobs:\n  j:\n    runs-on: x\n%s    steps:\n%s\n      - run: echo\n        env:\n          K: ${{ secrets.GLYNDOR_PACMAN_GPG_PRIVATE_KEY }}\n%s\n' "$1" "$2" "$3"
-}
-ENV='    environment: publish
-'
 check "a job with the environment and the guard first passes" "" "$(audit "$(plant ok "$(job "$ENV" "$GUARD" '')")")"
 check "a job with no secret needs neither" "" "$(audit "$(plant none 'jobs:
   j:
@@ -118,8 +58,10 @@ check "a secret named by the workflow, held by every job, is reported" "w.yml: a
   K: \${{ secrets.GLYNDOR_PACMAN_GPG_PRIVATE_KEY }}
 jobs:
   j: {runs-on: x, steps: []}")")"
-check "secrets: inherit on a caller is a secret held" "w.yml: job j reads a secret and does not declare environment: publish
-w.yml: job j reads a secret and its first step is not the guard of event and ref" \
+check "secrets: inherit on a caller is a secret held, and a caller has keys that a job with a secret does not carry" "w.yml: job j reads a secret and does not declare environment: publish
+w.yml: job j reads a secret and its first step is not the guard of event and ref
+w.yml: job j reads a secret and has the key secrets, which a job that holds a secret does not carry
+w.yml: job j reads a secret and has the key uses, which a job that holds a secret does not carry" \
 	"$(audit "$(plant inherit 'jobs:
   j:
     uses: ./.github/workflows/x.yml
@@ -129,6 +71,4 @@ check "a directory with no workflow is not a pass" "no workflow was read, so not
 real="$(audit "$HERE/.github/workflows")"
 check "every job of this repository that reads a secret has the environment and the guard" "" "$real"
 
-echo "$pass passed, $fail failed"
-printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
-[ "$fail" -eq 0 ]
+finish

@@ -51,15 +51,19 @@ shell / shellcheck
 shell / test
 workflow-lint / workflow-lint"
 
-# The workflows that are not checks of a pull request, each with the events it may run on and the names its jobs produce
-# (file, events, names). A name here is produced by that file and by nothing else, and none of them is a required check: the
-# analysis of CodeQL may come to be required as code scanning, not by name, and the publication and the verifications of the
-# published repository are run by the schedule and by hand, from main. Any other workflow runs on pull_request alone.
-NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)
-publish.yml	schedule workflow_dispatch	admit|build|sign|publish|verify / served|verify / install
-verify-live.yml	schedule workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer
-rehearsal.yml	schedule workflow_dispatch	rehearsal"
+# The workflows that are not checks of a pull request, each with the events it may run on, the names its jobs produce and
+# whether those names MUST be produced (file, events, names, required). A name here is produced by that file and by nothing else.
+# The analysis of CodeQL is required: the ruleset of main waits for `Analyze (actions)` and `Analyze (python)` (and for code
+# scanning), so a pull request that removes the workflow or one of its jobs would leave a check that no run ever produces, or one
+# that the ruleset stops waiting for. The publication and the verifications of the published repository are run by the schedule
+# and by hand, from main, and none of them is a check of a pull request: they are `no` until their workflows are in the
+# repository, and `yes` from the day they are. Any other workflow runs on pull_request alone.
+NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)	yes
+publish.yml	schedule workflow_dispatch	admit|build|sign|publish|verify / served|verify / install	no
+verify-live.yml	schedule workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer	no
+rehearsal.yml	schedule workflow_dispatch	rehearsal	no"
 NOT_PR_NAMES="$(printf '%s\n' "$NOT_PR" | cut -f3 | tr '|' '\n')"
+NOT_PR_REQUIRED="$(printf '%s\n' "$NOT_PR" | awk -F'\t' '$4 == "yes" { print $3 }' | tr '|' '\n')"
 
 # names <root>: the check names the workflows of the tree produce, one per line with the
 # file that produces it; and one line per offence of the event rule.
@@ -106,8 +110,9 @@ offences() { # $1=root: the offences, then the duplicated names, then a differen
 	done
 	local produced
 	produced="$(printf '%s\n' "$out" | grep '^NAME ' | sed 's/^NAME //' | cut -f1 | sort -u)"
-	# A required name has to be produced; a name of the table may be absent (its workflow may not exist yet) but nothing else may be extra.
-	comm -23 <(printf '%s\n' "$REQUIRED" | sort) <(printf '%s\n' "$produced") | sed 's/^/missing from the workflows: /'
+	# A required name has to be produced, the names of the rows marked required among them; a name of any other row may be absent (its
+	# workflow may not exist yet) but nothing else may be extra.
+	comm -23 <(printf '%s\n%s\n' "$REQUIRED" "$NOT_PR_REQUIRED" | sort -u) <(printf '%s\n' "$produced") | sed 's/^/missing from the workflows: /'
 	comm -13 <(printf '%s\n%s\n' "$REQUIRED" "$NOT_PR_NAMES" | sort -u) <(printf '%s\n' "$produced") | sed 's/^/not in the list of required names: /' || true
 }
 
@@ -148,6 +153,22 @@ check "a check of the analysis produced by another workflow is reported" "1" "$(
 d="$(cp_repo codeql-dispatch)"
 sed -i 's/^  schedule:$/  workflow_dispatch:\n  schedule:/' "$d/.github/workflows/codeql.yml"
 check "a manual trigger on codeql.yml is reported" "1" "$(offences "$d" | grep -c 'codeql.yml: runs on')"
+d="$(cp_repo no-codeql)"
+rm "$d/.github/workflows/codeql.yml"
+check "removing codeql.yml leaves both analysis names missing" "$(printf 'missing from the workflows: Analyze (actions)\nmissing from the workflows: Analyze (python)')" "$(offences "$d")"
+d="$(cp_repo one-analysis)"
+sed -i 's/^    name: Analyze (python)$/    name: Analyze (py)/' "$d/.github/workflows/codeql.yml"
+check "renaming one analysis job leaves its name missing, and the new one is not in the list" \
+	"$(printf 'missing from the workflows: Analyze (python)\nnot in the list of required names: Analyze (py)')" "$(offences "$d")"
+d="$(cp_repo drop-analysis)"
+python3 -I - "$d/.github/workflows/codeql.yml" <<'PYX'
+import re, sys
+text = open(sys.argv[1]).read()
+start = text.index("  analyze-python:")
+end = text.find("\n  analyze-", start + 1)
+open(sys.argv[1], "w").write(text[:start] + (text[end + 1:] if end >= 0 else ""))
+PYX
+check "removing the job of the Python analysis leaves its name missing" "missing from the workflows: Analyze (python)" "$(offences "$d")"
 d="$(mk publish-ok publish.yml 'on: [schedule, workflow_dispatch]
 jobs:
   admit:
