@@ -1,0 +1,57 @@
+name: Verify the published repository
+
+# What a client sees, read from the public address by a runner that holds nothing: the repository holds together, and the
+# README's install works on a host of Arch Linux. Called after each publication and by verify-live.yml, with the Arch of the
+# image the packages are built on (`pinned`) and with the Arch of today (`current`), the second being the case that breaks
+# when a library moves.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        type: string
+        default: pinned
+
+permissions: {}
+
+env:
+  ARCHIVE_URL: https://pacman.glyndor.net
+
+jobs:
+  served:
+    name: served
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    # Two reads of the repository and a request for each package; measured: seconds.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The repository holds together
+        run: bash scripts/verify/check-served.sh --url "$ARCHIVE_URL"
+
+  install:
+    name: install
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    # The upgrade of an Arch container, an install and a second upgrade; the first run will say how long.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install a package the way the README says, and upgrade
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          bash scripts/metadata/read-served.sh --url "$ARCHIVE_URL" --out "$RUNNER_TEMP/served"
+          # podman when the repository serves it (it is the case that replaces packages of the distribution), else the first package.
+          name="$(cut -f1 "$RUNNER_TEMP/served/served.tsv" | grep -x podman || cut -f1 "$RUNNER_TEMP/served/served.tsv" | head -n 1)"
+          version="$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' "$RUNNER_TEMP/served/served.tsv")"
+          args=()
+          [ "$name" != podman ] || args+=(--distro podman --run 'podman --version')
+          bash scripts/verify/run-live.sh install --image "$IMAGE" --state live-host --base "$ARCHIVE_URL" --package "$name" --expect "$version" "${args[@]}"

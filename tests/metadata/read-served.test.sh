@@ -63,8 +63,16 @@ check "and it still reads what is served" "2" "$(wc -l < "$WORK/out/served.tsv" 
 echo "-- what a hostile or broken server serves"
 D="$WORK/site/arch/x86_64"
 cp -r "$WORK/site" "$WORK/site-good"
-for f in glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.state glyndor.state.sig; do
+for f in glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.db glyndor.db.sig glyndor.state glyndor.state.sig; do
 	rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
+printf 'another database' > "$D/glyndor.db"
+check "a glyndor.db that is not the .tar.zst whose signature verifies is refused (pacman reads glyndor.db)" "1" "$(rc_of read_it)"
+check "and says so" "1" "$(says 'glyndor.db is not the file glyndor.db.tar.zst')"
+rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
+printf 'another signature' > "$D/glyndor.db.sig"
+check "a glyndor.db.sig that is not the signature that verifies is refused" "1" "$(rc_of read_it)"
+check "and says so" "1" "$(says 'glyndor.db.sig is not the signature')"
+rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
 	rm "$D/$f"
 	check "$f missing while the rest is served" "1" "$(rc_of read_it)"
 	check "and says what is missing" "1" "$(says "$f answered 404")"
@@ -103,4 +111,7 @@ check "no address" "2" "$(rc_of bash "$SCRIPT" --out "$WORK/o4")"
 check "a server that is not there is not an empty repository" "1" "$(rc_of bash "$SCRIPT" --url http://127.0.0.1:9 --out "$WORK/o5" --first-publication --key "$WORK/key/pub.asc")"
 check "a public key that is not a key" "2" "$(printf 'x' > "$WORK/badkey"; PUB="$WORK/badkey" rc_of read_it)"
 
+for u in 'http://127.0.0.1:1@evil.example.org/' 'http://127.0.0.1:1/@evil.example.org' 'http://127.0.0.1:abc' 'http://localhost:1@evil.example.org' 'https://pacman.glyndor.net@evil.example.org' 'https://user:pass@pacman.glyndor.net' 'ftp://pacman.glyndor.net' 'https://'; do
+	check "an address that a glob would take, $u, is refused whole" "2" "$(rc_of bash "$SCRIPT" --url "$u" --out "$WORK/out-bad" --key "$WORK/key/pub.asc" --now "$NOW")"
+done
 finish

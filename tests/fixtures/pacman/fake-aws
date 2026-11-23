@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# A stand-in for the part of the AWS CLI the publication uses, with a folder as the bucket:
+#
+#   $FAKE_BUCKET/<key>             the object; $FAKE_BUCKET/.meta/<key with / as _> holds its sha256 metadata
+#
+# Calls: --version; s3api head-object | put-object | delete-object. FAKE_FAIL_KEY is a substring: a put or a
+# delete of a key that contains it fails (status 1) and writes nothing; FAKE_FAIL_ONCE=1 makes that happen only
+# the first time. FAKE_HEAD_ERROR makes a head-object answer with that error text. Every call that changes the
+# bucket is appended to $FAKE_LOG as `put <key>` or `delete <key>`. get-object <outfile> copies an object out, or fails with the
+# NoSuchKey text (FAKE_GET_ERROR makes it answer with that text instead). put-object --if-none-match '*' fails with the
+# PreconditionFailed text when the object exists; `put-object help` lists that option unless FAKE_NO_COND_SUPPORT=1.
+# FAKE_HIDE_HEAD is a substring: the first FAKE_HIDE_COUNT (default 1) head-objects of each key that contains it answer 404
+# whatever the bucket holds (a copy that appears between the head and the write).
+set -euo pipefail
+export LC_ALL=C
+if [ "${1:-}" = "--version" ]; then
+	echo "aws-cli/${FAKE_AWS_VERSION:-2.17.0} Python/3.12 Linux/7.0 exe/x86_64"
+	exit 0
+fi
+[ "${1:-}" = s3api ] || { echo "fake-aws: only s3api is supported" >&2; exit 64; }
+action="$2"
+shift 2
+if [ "${1:-}" = help ]; then
+	echo "put-object [--body <value>] [--cache-control <value>]"
+	[ "${FAKE_NO_COND_SUPPORT:-0}" = 1 ] || echo "[--if-none-match <value>]"
+	exit 0
+fi
+key="" body="" sha="" bucket="" cond="" outfile=""
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--bucket) bucket="$2"; shift 2 ;;
+		--key) key="$2"; shift 2 ;;
+		--body) body="$2"; shift 2 ;;
+		--metadata) sha="${2#sha256=}"; shift 2 ;;
+		--if-none-match) cond="$2"; shift 2 ;;
+		--cache-control | --content-type | --output | --query) shift 2 ;;
+		--*) echo "fake-aws: unknown option $1" >&2; exit 64 ;;
+		*) if [ "$action" = get-object ] && [ -z "$outfile" ]; then outfile="$1"; shift; else echo "fake-aws: unknown argument $1" >&2; exit 64; fi ;;
+	esac
+done
+[ -n "$bucket" ] || { echo "fake-aws: no bucket" >&2; exit 64; }
+root="${FAKE_BUCKET:?FAKE_BUCKET is not set}"
+meta="$root/.meta/${key//\//_}"
+failing() {
+	[ -n "${FAKE_FAIL_KEY:-}" ] && [[ "$key" == *"$FAKE_FAIL_KEY"* ]] || return 1
+	if [ "${FAKE_FAIL_ONCE:-0}" = 1 ]; then
+		[ ! -e "$root/.failed" ] || return 1
+		: > "$root/.failed"
+	fi
+	return 0
+}
+case "$action" in
+	get-object)
+		if [ -n "${FAKE_GET_ERROR:-}" ]; then echo "$FAKE_GET_ERROR" >&2; exit 254; fi
+		if [ -f "$root/$key" ]; then cp "$root/$key" "$outfile"; echo '{}'; exit 0; fi
+		echo "An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist." >&2
+		exit 254
+		;;
+	head-object)
+		if [ -n "${FAKE_HEAD_ERROR:-}" ]; then echo "$FAKE_HEAD_ERROR" >&2; exit 254; fi
+		if [ -n "${FAKE_HIDE_HEAD:-}" ] && [[ "$key" == *"$FAKE_HIDE_HEAD"* ]] && [ "$(cat "$root/.hidden/${key//\//_}" 2> /dev/null || echo 0)" -lt "${FAKE_HIDE_COUNT:-1}" ]; then
+			mkdir -p "$root/.hidden"
+			printf '%s\n' "$(($(cat "$root/.hidden/${key//\//_}" 2> /dev/null || echo 0) + 1))" > "$root/.hidden/${key//\//_}"
+			echo "An error occurred (404) when calling the HeadObject operation: Not Found" >&2
+			exit 254
+		fi
+		if [ -f "$root/$key" ]; then
+			if [ -f "$meta" ]; then cat "$meta"; else echo None; fi
+			exit 0
+		fi
+		echo "An error occurred (404) when calling the HeadObject operation: Not Found" >&2
+		exit 254
+		;;
+	put-object)
+		if failing; then echo "fake-aws: put of $key failed" >&2; exit 1; fi
+		if [ "$cond" = "*" ] && [ -f "$root/$key" ]; then
+			echo "An error occurred (PreconditionFailed) when calling the PutObject operation: At least one of the pre-conditions you specified did not hold" >&2
+			exit 254
+		fi
+		mkdir -p "$root/$(dirname "$key")" "$root/.meta"
+		cp "$body" "$root/$key"
+		printf '%s\n' "$sha" > "$meta"
+		printf 'put %s\n' "$key" >> "${FAKE_LOG:-/dev/null}"
+		;;
+	delete-object)
+		if failing; then echo "fake-aws: delete of $key failed" >&2; exit 1; fi
+		rm -f "$root/$key" "$meta"
+		printf 'delete %s\n' "$key" >> "${FAKE_LOG:-/dev/null}"
+		;;
+	*) echo "fake-aws: unsupported $action" >&2; exit 64 ;;
+esac

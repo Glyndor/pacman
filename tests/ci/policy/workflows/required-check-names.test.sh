@@ -56,12 +56,13 @@ workflow-lint / workflow-lint"
 # The analysis of CodeQL is required: the ruleset of main waits for `Analyze (actions)` and `Analyze (python)` (and for code
 # scanning), so a pull request that removes the workflow or one of its jobs would leave a check that no run ever produces, or one
 # that the ruleset stops waiting for. The publication and the verifications of the published repository are run by the schedule
-# and by hand, from main, and none of them is a check of a pull request: they are `no` until their workflows are in the
-# repository, and `yes` from the day they are. Any other workflow runs on pull_request alone.
+# and by hand, from main, and none of them is a check of a pull request: they were `no` until their workflows were in the
+# repository, and are `yes` now that they are. They run by hand only until the channel publishes for real: their cron is added in
+# the pull request of the first publication, which adds `schedule` to the events of the row and a watcher for each cron. Any other workflow runs on pull_request alone.
 NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)	yes
-publish.yml	schedule workflow_dispatch	admit|build|sign|publish|verify / served|verify / install	no
-verify-live.yml	schedule workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer	no
-rehearsal.yml	schedule workflow_dispatch	rehearsal	no"
+publish.yml	workflow_dispatch	admit|build|sign|publish|verify / served|verify / install	yes
+verify-live.yml	workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer	yes
+rehearsal.yml	workflow_dispatch	rehearsal	yes"
 NOT_PR_NAMES="$(printf '%s\n' "$NOT_PR" | cut -f3 | tr '|' '\n')"
 NOT_PR_REQUIRED="$(printf '%s\n' "$NOT_PR" | awk -F'\t' '$4 == "yes" { print $3 }' | tr '|' '\n')"
 
@@ -169,19 +170,28 @@ end = text.find("\n  analyze-", start + 1)
 open(sys.argv[1], "w").write(text[:start] + (text[end + 1:] if end >= 0 else ""))
 PYX
 check "removing the job of the Python analysis leaves its name missing" "missing from the workflows: Analyze (python)" "$(offences "$d")"
-d="$(mk publish-ok publish.yml 'on: [schedule, workflow_dispatch]
+d="$(cp_repo no-publish)"
+rm "$d/.github/workflows/publish.yml"
+check "removing publish.yml leaves its six names missing" "6" "$(offences "$d" | grep -c '^missing from the workflows: ')"
+d="$(mk publish-ok publish.yml 'on: [workflow_dispatch]
 jobs:
   admit:
     runs-on: x
     steps: []')"
-check "publish.yml on the schedule and by hand is accepted" "" "$(offences "$d" | grep 'publish.yml' || true)"
-d="$(mk publish-push publish.yml 'on: [schedule, workflow_dispatch, push]
+check "publish.yml by hand alone is accepted" "" "$(offences "$d" | grep 'publish.yml' || true)"
+d="$(mk publish-cron publish.yml 'on: [schedule, workflow_dispatch]
+jobs:
+  admit:
+    runs-on: x
+    steps: []')"
+check "a cron on publish.yml is reported until its row of the table says so" "1" "$(offences "$d" | grep -c 'publish.yml: runs on schedule, workflow_dispatch')"
+d="$(mk publish-push publish.yml 'on: [workflow_dispatch, push]
 jobs:
   admit:
     runs-on: x
     steps: []')"
 check "a push trigger on publish.yml is reported" "1" "$(offences "$d" | grep -c 'publish.yml: runs on')"
-d="$(mk publish-pr publish.yml 'on: [schedule, workflow_dispatch, pull_request]
+d="$(mk publish-pr publish.yml 'on: [workflow_dispatch, pull_request]
 jobs:
   admit:
     runs-on: x
