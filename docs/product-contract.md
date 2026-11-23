@@ -83,9 +83,13 @@ for it in a reviewed change to that file; the lines there today are what the cha
 not yet been measured against a real release of each product.
 
 Also required: one `.PKGINFO` among the leading dot entries, before the first ordinary entry, a regular file of at most 64 KiB; no member with an absolute name, a `..`
-component or a device node; no hard link out of the tree. `.INSTALL` scripts are allowed and run as root on
-the host, so the signature is what binds them to the product; prefer `sysusers.d` and `tmpfiles.d` over scripts
-that create users. The name `glyndor-keyring` is reserved for the channel and refused in a product.
+component or a device node; no hard link out of the tree. An `.INSTALL` is code that pacman runs as root
+on the host, so it is not carried freely: the channel admits it only when the SHA-256 of its exact bytes is listed for the package in
+`scripts/admit/package-scriptlets.txt` (package, hash, reason, in a reviewed change); a package with no line cannot carry one, and a
+hash that is not listed refuses the release and is printed so that it can be read and added. Both readers read it and have to give the
+same bytes. The list is empty today. Prefer `sysusers.d` and `tmpfiles.d` over scripts that create users. No other entry that
+starts with a dot at the root is carried but `.PKGINFO`, `.MTREE`, `.BUILDINFO` and `.CHANGELOG`, which have to be regular files of at most
+1 MiB. The name `glyndor-keyring` is reserved for the channel and refused in a product.
 
 ## Where a package is served
 

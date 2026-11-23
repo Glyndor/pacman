@@ -22,7 +22,7 @@ rc_of() {
 says() { if grep -q -F -- "$1" "$WORK/last.out"; then echo 1; else echo 0; fi; }
 printf 'acme\tusr/bin/acme usr/lib/acme/ usr/share/acme/ etc/acme.conf usr/lib/systemd/system/acme*.service >usr/bin/other\n' > "$WORK/paths.txt"
 pkg() { python3 -I "$FIXTURES/mkpkg.py" "$WORK/p.pkg.tar.zst" acme 1.2.3-1 x86_64 "$@"; }
-read_it() { python3 -I "$READER" --paths "${PATHSFILE:-$WORK/paths.txt}" --package "${NAME:-acme}" "$WORK/p.pkg.tar.zst"; }
+read_it() { python3 -I "$READER" --paths "${PATHSFILE:-$WORK/paths.txt}" --scriptlets "${SCRIPTLETS:-$FIXTURES/scriptlets-none.txt}" --package "${NAME:-acme}" "$WORK/p.pkg.tar.zst"; }
 refused() { # <label> <expected text> <mkpkg options...>
 	local label="$1" text="$2"
 	shift 2
@@ -140,11 +140,71 @@ import importlib.util, sys
 spec = importlib.util.spec_from_file_location("package_reader", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-_, _, theirs = module.read_with_bsdtar(sys.argv[2])
-_, _, ours = module.read_with_tarfile(sys.argv[2])
+_, _, theirs, _ = module.read_with_bsdtar(sys.argv[2])
+_, _, ours, _ = module.read_with_tarfile(sys.argv[2])
 print(0 if theirs == ours and ours else 1)
 PY
 )"
+
+echo "-- the .INSTALL is code that pacman runs as root, and only the one whose hash is listed for the package is carried"
+INSTALL_TEXT='post_install() { echo hello; }'
+INSTALL_SHA="$(printf '%s' "$INSTALL_TEXT" | sha256sum | cut -d' ' -f1)"
+printf 'acme\t%s\tthe test package says hello once\n' "$INSTALL_SHA" > "$WORK/scriptlets.txt"
+printf 'other\t%s\tsome other package\n' "$INSTALL_SHA" > "$WORK/scriptlets-other.txt"
+pkg --member ".INSTALL=$INSTALL_TEXT"
+check "a package with no line in the list of scriptlets cannot carry an .INSTALL" "1" "$(rc_of read_it)"
+check "and the refusal prints the hash it saw, to be reviewed and added" "1" "$(says "$INSTALL_SHA")"
+check "and says that pacman runs it as root" "1" "$(says 'pacman runs it as root')"
+check "the list of another package does not allow it" "1" "$(SCRIPTLETS="$WORK/scriptlets-other.txt" rc_of read_it)"
+check "the .INSTALL whose hash is listed for the package is carried" "0" "$(SCRIPTLETS="$WORK/scriptlets.txt" rc_of read_it)"
+pkg --member ".INSTALL=${INSTALL_TEXT}x"
+check "an .INSTALL with a byte more is not the one listed" "1" "$(SCRIPTLETS="$WORK/scriptlets.txt" rc_of read_it)"
+pkg --member ".INSTALL=post_install() { echo hellp; }"
+check "an .INSTALL with a byte changed is not the one listed" "1" "$(SCRIPTLETS="$WORK/scriptlets.txt" rc_of read_it)"
+check "and the hash of the changed one is printed" "1" "$(says "$(printf '%s' 'post_install() { echo hellp; }' | sha256sum | cut -d' ' -f1)")"
+refused "two .INSTALL in the archive" "twice" --member ".INSTALL=$INSTALL_TEXT" --raw-member .INSTALL
+pkg --symlink .INSTALL=/etc/passwd
+check "an .INSTALL that is a link" "1" "$(SCRIPTLETS="$WORK/scriptlets.txt" rc_of read_it)"
+check "and says it is not a regular file" "1" "$(says 'not a regular file')"
+head -c 300000 /dev/zero | tr '\0' 'a' > "$WORK/big-install"
+pkg --member ".INSTALL=@$WORK/big-install"
+check "an .INSTALL of more than 256 KiB" "1" "$(SCRIPTLETS="$WORK/scriptlets.txt" rc_of read_it)"
+refused "an entry .HOOK that nobody listed" "entry with a dot at the root" --member .HOOK=x
+refused "an entry .SIGN that nobody listed" "entry with a dot at the root" --member .SIGN=x
+refused "a folder with a dot at the root" "entry with a dot at the root" --raw-member .hidden/x
+refused "a hook of libalpm in its own folder" "usr/share/libalpm/hooks/evil.hook" --member usr/share/libalpm/hooks/evil.hook=x
+refused "a hook of the administrator" "etc/pacman.d/hooks/evil.hook" --member etc/pacman.d/hooks/evil.hook=x
+refused "a .BUILDINFO that is a link" "not a regular file" --symlink .BUILDINFO=/etc/passwd
+refused "a .CHANGELOG that is a link" "not a regular file" --symlink .CHANGELOG=/etc/passwd
+head -c 1100000 /dev/zero | tr '\0' 'a' > "$WORK/big-buildinfo"
+refused "a .BUILDINFO of more than a megabyte" "larger than" --member ".BUILDINFO=@$WORK/big-buildinfo"
+pkg --member ".BUILDINFO=format = 2" --member ".CHANGELOG=a line"
+check "a .BUILDINFO and a .CHANGELOG that are regular files and small are carried" "0" "$(rc_of read_it)"
+check "the host's reader reads the same .INSTALL as this reader" "0" "$(pkg --member ".INSTALL=$INSTALL_TEXT"; python3 -I - "$READER" "$WORK/p.pkg.tar.zst" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("package_reader", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+_, _, _, theirs = module.read_with_bsdtar(sys.argv[2])
+_, _, _, ours = module.read_with_tarfile(sys.argv[2])
+print(0 if theirs == ours and ours == b"post_install() { echo hello; }" else 1)
+PY
+)"
+printf 'acme\tnot-a-hash\twhy\n' > "$WORK/bad-s1.txt"
+check "a list of scriptlets with a line that has no hash does not load" "2" "$(SCRIPTLETS="$WORK/bad-s1.txt" rc_of read_it)"
+printf 'acme\t%s\n' "$INSTALL_SHA" > "$WORK/bad-s2.txt"
+check "a line with no reason does not load" "2" "$(SCRIPTLETS="$WORK/bad-s2.txt" rc_of read_it)"
+printf 'acme\t%s\twhy\nacme\t%s\twhy again\n' "$INSTALL_SHA" "$INSTALL_SHA" > "$WORK/bad-s3.txt"
+check "the same hash twice for a package does not load" "2" "$(SCRIPTLETS="$WORK/bad-s3.txt" rc_of read_it)"
+check "a list that is not there does not load" "2" "$(SCRIPTLETS="$WORK/none-s.txt" rc_of read_it)"
+check "the list of the repository loads, and is empty today" "0" "$(python3 -I - "$HERE/scripts/admit/pkgpolicy.py" "$HERE/scripts/admit/package-scriptlets.txt" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("pkgpolicy", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+sys.exit(0 if module.load_scriptlets(sys.argv[2]) == {} else 1)
+PY
+echo $?)"
 
 echo "-- the file of paths"
 printf 'acme\tetc/pacman.conf\n' > "$WORK/bad1.txt"

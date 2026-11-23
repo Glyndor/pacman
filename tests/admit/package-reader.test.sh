@@ -19,7 +19,7 @@ rc_of() {
 }
 says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
 pkg() { python3 -I "$FIXTURES/mkpkg.py" "$WORK/p.pkg.tar.zst" acme 1.2.3-1 x86_64 "$@"; }
-read_it() { python3 -I "$READER" --paths "${PATHS:-$FIXTURES/paths-permissive.txt}" --package acme "$WORK/p.pkg.tar.zst"; }
+read_it() { python3 -I "$READER" --paths "${PATHS:-$FIXTURES/paths-permissive.txt}" --scriptlets "$FIXTURES/scriptlets-none.txt" --package acme "$WORK/p.pkg.tar.zst"; }
 
 pkg --makepkg-layout
 check "an ordinary package is read" "0" "$(rc_of read_it)"

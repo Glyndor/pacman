@@ -354,6 +354,16 @@ python3 -I "$ADMIT" check --products "$WORK/products.txt" --repo acme --tag v1.2
 check "a manifest that already exists is not overwritten" "2" "$rc"
 check "and is left as it was" "0" "$(stat -c%s "$WORK/pre-existing.tsv")"
 
+echo "-- the .INSTALL of a package is code that runs as root, and only a listed one is carried"
+INSTALL_BODY='post_install() { echo hello; }'
+good --member ".INSTALL=$INSTALL_BODY"
+check "a package with an .INSTALL, and no line for it in the list of the repository, is refused" "1" "$(rc_of attempt)"
+check "and the hash of the script is in the message" "1" "$(says "$(printf '%s' "$INSTALL_BODY" | sha256sum | cut -d' ' -f1)")"
+printf 'acme\t%s\tthe test says hello\n' "$(printf '%s' "$INSTALL_BODY" | sha256sum | cut -d' ' -f1)" > "$WORK/scriptlets-ok.txt"
+check "the same package with its hash listed is admitted" "0" "$(rc_of attempt --scriptlets "$WORK/scriptlets-ok.txt")"
+good --member ".INSTALL=${INSTALL_BODY}x"
+check "the hash of another script is not the one listed" "1" "$(rc_of attempt --scriptlets "$WORK/scriptlets-ok.txt")"
+
 echo "-- relations with a version (the products file lists the exact forms; provides may carry no version or the one of the package)"
 printf 'podman\tpodman\tx86_64\tnetavark,aardvark-dns,netavark=2.1.0,container-network-stack,container-network-stack=2,podman-remote\npodman\tpodman-docker\tany\tdocker,group-docker\n' > "$WORK/products.txt"
 rel() { # <package that carries the options> <options...>: a release of both members of the split package, the options on one

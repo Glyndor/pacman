@@ -1,0 +1,1 @@
+# No scriptlet is allowed to any package: the list the suites that test a parser use.

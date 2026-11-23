@@ -19,7 +19,14 @@ FORBIDDEN = ("etc/pacman.conf", "etc/pacman.d", "usr/share/pacman", "usr/share/l
 	"etc/passwd", "etc/shadow", "etc/group", "etc/gshadow", "etc/pam.d", "etc/ld.so.conf", "etc/ld.so.conf.d", "etc/profile",
 	"etc/profile.d", "etc/cron.d", "etc/crontab", "etc/cron.daily", "etc/cron.hourly", "etc/cron.weekly", "etc/cron.monthly",
 	"etc/ssh", "etc/systemd", "usr/lib/udev/rules.d", "etc/udev", "usr/lib/modprobe.d", "etc/modprobe.d", "boot")
-DOT_ENTRIES = (".PKGINFO", ".BUILDINFO", ".MTREE", ".INSTALL", ".CHANGELOG")
+# The entries with a dot that a package may carry at its root, and nothing else that starts with a dot: .PKGINFO, .MTREE and
+# .BUILDINFO describe it and are read, never run; .INSTALL is the scriptlet that pacman runs as root, so it is not free: it is
+# allowed only when the SHA-256 of exactly its bytes is listed for the package in package-scriptlets.txt.
+DOT_ENTRIES = (".PKGINFO", ".BUILDINFO", ".MTREE", ".CHANGELOG")
+INSTALL_NAME = ".INSTALL"
+MAX_DOT_BYTES = 1024 * 1024
+MAX_INSTALL_BYTES = 256 * 1024
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 NAME_RE = re.compile(r"^[a-z0-9@_+][a-z0-9@._+-]+$")
 PATTERN_RE = re.compile(r"^>?[A-Za-z0-9@_+*][A-Za-z0-9@._+*-]*(/[A-Za-z0-9@_+*][A-Za-z0-9@._+*-]*)*/?$")
 
@@ -128,7 +135,29 @@ def resolve(link_name, target):
 MAX_HOPS = 8
 
 
-def check(package, rules, members, info):
+def load_scriptlets(path):
+	"""{package: {sha256: reason}} from package-scriptlets.txt: package, TAB, sha256 of the .INSTALL, TAB, why it is allowed."""
+	try:
+		with open(path, "rb") as f:
+			raw = f.read(1 << 20)
+	except OSError as exc:
+		raise PolicyError(f"cannot read the scriptlets file {path}: {exc}")
+	if any(b != 0x0A and b != 0x09 and not 0x20 <= b <= 0x7E for b in raw):
+		raise PolicyError(f"{path} holds a byte that is neither printable ASCII, a tab nor a line feed")
+	found = {}
+	for number, line in enumerate(raw.decode("ascii").split("\n"), 1):
+		if not line.strip() or line.startswith("#"):
+			continue
+		fields = line.split("\t")
+		if len(fields) != 3 or not NAME_RE.match(fields[0]) or not SHA_RE.match(fields[1]) or not fields[2].strip():
+			raise PolicyError(f"{path}:{number}: expected a package, a TAB, the sha256 of its .INSTALL, a TAB and the reason")
+		if fields[1] in found.get(fields[0], {}):
+			raise PolicyError(f"{path}:{number}: the same hash is listed twice for {fields[0]}")
+		found.setdefault(fields[0], {})[fields[1]] = fields[2]
+	return found
+
+
+def check(package, rules, members, info, install_sha=None, scriptlets=None):
 	"""Refuse a package that installs, links or backs up anything its line does not allow."""
 	if package not in rules:
 		raise Refused(f"package-paths.txt has no line for {package}; a package with no allowed paths installs nothing")
@@ -136,17 +165,27 @@ def check(package, rules, members, info):
 	reachable = own + targets
 	names, links = {}, {}
 	for kind, name, _size, link in members:
-		if name in DOT_ENTRIES:
-			if kind != "-":
-				raise Refused(f"{name} is not a regular file")
-			continue
 		if name in names:
 			raise Refused(f"{name} is in the package twice")
 		names[name] = kind
 		if kind in "lh":
 			links[name] = (kind, link)
+	for kind, name, size, link in members:
+		if not name.startswith("."):
+			continue
+		if name not in DOT_ENTRIES and name != INSTALL_NAME:
+			raise Refused(f"{name} is an entry with a dot at the root that a package of this channel does not carry")
+		if kind != "-":
+			raise Refused(f"{name} is not a regular file")
+		if size > (MAX_INSTALL_BYTES if name == INSTALL_NAME else MAX_DOT_BYTES):
+			raise Refused(f"{name} is larger than a {name} of a package may be")
+		if name == INSTALL_NAME:
+			allowed = (scriptlets or {}).get(package, {})
+			if install_sha is None or install_sha not in allowed:
+				raise Refused(f".INSTALL of {package} has the sha256 {install_sha}, which package-scriptlets.txt does not list for it; "
+					"pacman runs it as root, so review it and add the line in a pull request")
 	for kind, name, _size, link in members:
-		if name in DOT_ENTRIES:
+		if name.startswith("."):
 			continue
 		if forbidden(name):
 			raise Refused(f"{name} is a place no product package may install (the files and keys of pacman, of sudo, of the login)")

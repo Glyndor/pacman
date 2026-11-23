@@ -7,7 +7,7 @@
 #
 # Writes <folder>/list.txt (bsdtar -tv, one line per member), <folder>/pkginfo (the bytes of .PKGINFO, at most 64 KiB
 # and one more byte so that a larger one is seen as larger), <folder>/version and, when the package has an .MTREE,
-# <folder>/mtree.list: what libarchive reads in it, one path per line (the format of an .MTREE is one it understands), and
+# <folder>/install (the bytes of .INSTALL, at most 256 KiB and one more byte, when the package has one), <folder>/mtree.list: what libarchive reads in it, one path per line (the format of an .MTREE is one it understands), and
 # <folder>/pax.keys: the keys of extended attributes, ACLs and security labels that libarchive reads in the headers of the members,
 # found by writing the archive out again in the pax format (the listing of bsdtar does not show them). Exits non-zero when bsdtar fails
 # for any reason: a package it cannot read is refused, not read some other way.
@@ -39,4 +39,7 @@ set -e
 if [ "${codes[0]}" -ne 0 ] || [ "${codes[1]}" -gt 1 ] || [ "${codes[2]}" -ne 0 ]; then
 	echo "bsdtar could not write the package out again to look for extended attributes" >&2
 	exit 4
+fi
+if grep -q -E ' (\./)?\.INSTALL$' "$out/list.txt"; then
+	timeout 120 bsdtar -xOf "$pkg" .INSTALL 2>> "$out/list.err" | head -c 262145 > "$out/install"
 fi

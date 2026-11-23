@@ -4,7 +4,7 @@
   admit.py plan  --products FILE --repo REPO --tag TAG --assets FILE
   admit.py check --products FILE --repo REPO --tag TAG --assets FILE --dir DIR
                  --ed25519-keys FILE [--mldsa-keys FILE] [--pq-required FILE]
-                 [--paths FILE] [--verifier FILE] [--python EXE] --out FILE
+                 [--paths FILE] [--scriptlets FILE] [--verifier FILE] [--python EXE] --out FILE
 
 `plan` prints, one per line and separated by a TAB, the exact files to download:
 kind (package, sig or mldsa), package name, file name, advertised size. Everything
@@ -63,10 +63,10 @@ class ConfigError(Exception):
 	"""Something this repository owns is malformed."""
 
 
-def read_package(path, package, paths):
+def read_package(path, package, paths, scriptlets):
 	"""The fields of .PKGINFO, as package-reader.py read them with the two readers in agreement and the paths allowed."""
 	reader = os.path.join(os.path.dirname(os.path.abspath(__file__)), "package-reader.py")
-	done = subprocess.run([sys.executable, "-I", reader, "--paths", paths, "--package", package, path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1500)
+	done = subprocess.run([sys.executable, "-I", reader, "--paths", paths, "--scriptlets", scriptlets, "--package", package, path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1500)
 	if done.returncode == 2:
 		raise ConfigError(done.stderr.strip().removeprefix("::error::"))
 	if done.returncode != 0:
@@ -335,7 +335,7 @@ def run_check(args):
 				raise ConfigError(f"the release key files are broken: {done.stderr.strip()}")
 			if done.returncode != 0:
 				raise Refused(f"{name} is not signed by the release key: {done.stderr.strip() or done.stdout.strip()}")
-			infos[name] = read_package(copies["package"][0], package, args.paths)
+			infos[name] = read_package(copies["package"][0], package, args.paths, args.scriptlets)
 			check_fields(infos[name], package, arch, version, name, products[package][1], set(products))
 			if sha256_of(os.path.join(args.dir, name)) != copies["package"][1]:
 				raise Refused(f"{name} changed while it was being verified")
@@ -382,6 +382,7 @@ def main():
 	check.add_argument("--mldsa-keys", default=os.devnull)
 	check.add_argument("--pq-required", required=True)
 	check.add_argument("--paths", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "package-paths.txt"))
+	check.add_argument("--scriptlets", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "package-scriptlets.txt"))
 	check.add_argument("--verifier", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "verify-sig.py"))
 	check.add_argument("--python", default=sys.executable)
 	check.add_argument("--out", required=True)

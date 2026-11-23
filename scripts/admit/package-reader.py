@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read a package the way its consumer will, and print its .PKGINFO as JSON.
 
-  package-reader.py (--paths <file> --package <name> | --no-paths) <package.pkg.tar.zst>
+  package-reader.py (--paths <file> --scriptlets <file> --package <name> | --no-paths) <package.pkg.tar.zst>
 
 The package is read twice, by two readers that must agree on everything: Python's tarfile (in a stream, with the bounds
 on what an archive bomb can cost) and bsdtar, the libarchive pacman uses on the host, run in the pinned Arch image
@@ -15,11 +15,13 @@ closed set of keys, and a name where a relation holds one.
 
 What the package installs is judged too, by default deny (pkgpolicy.py and package-paths.txt, --paths and --package): every
 member must be in a place its package may install, a link may only point at such a place, no member is setuid or setgid,
-`backup` names files of the package, and `.MTREE`, when there is one, lists exactly the members of the archive. --no-paths
+`backup` names files of the package, an `.INSTALL` is carried only when the hash of its exact bytes is listed for the package (both
+readers read it and have to give the same bytes), no other entry with a dot at the root is admitted, and `.MTREE`, when there is one, lists exactly the members of the archive. --no-paths
 is for the one package this channel builds itself, whose members are compared with a fixed list elsewhere.
 
 Exit 0 read (the fields on stdout), 1 refused, 2 no container engine for the reader of the host.
 """
+import hashlib
 import json
 import os
 import re
@@ -36,6 +38,7 @@ MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ENTRIES = 100000
 MAX_PKGINFO_BYTES = 65536
 MAX_MTREE_BYTES = 8 * 1024 * 1024
+MAX_INSTALL_READ = 256 * 1024
 # The only keys of a pax header that a package of this channel may carry: what makepkg and libarchive write for names and times.
 PAX_ALLOWED = {"path", "linkpath", "size", "mtime", "atime", "ctime", "uname", "gname"}
 NAME_RE = re.compile(r"^[a-z0-9@_+][a-z0-9@._+-]+$")
@@ -184,7 +187,7 @@ def read_with_tarfile(path):
 
 	This reader decides nothing by itself: what the host's reader (bsdtar) lists must be the same, member by member."""
 	proc = subprocess.Popen(["zstd", "-dc", "-q", "--no-progress", "--", path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-	info, members, drained, normal_seen, end, mtree = None, [], False, False, 0, None
+	info, members, drained, normal_seen, end, mtree, install = None, [], False, False, 0, None, None
 	try:
 		stream = Capped(proc.stdout, MAX_UNPACKED_BYTES)
 		with tarfile.open(fileobj=stream, mode="r|", tarinfo=BoundedInfo) as archive:
@@ -218,6 +221,8 @@ def read_with_tarfile(path):
 					if kind != "-" or member.size > MAX_PKGINFO_BYTES:
 						raise Refused(".PKGINFO is not a regular file of at most 64 KiB")
 					info = archive.extractfile(member).read(MAX_PKGINFO_BYTES + 1)
+				if name == ".INSTALL" and kind == "-" and member.size <= MAX_INSTALL_READ:
+					install = (install or b"") + archive.extractfile(member).read(MAX_INSTALL_READ + 1)
 				if name == ".MTREE":
 					if mtree is not None:
 						raise Refused("the package has two .MTREE members")
@@ -250,7 +255,7 @@ def read_with_tarfile(path):
 		raise Refused(f"zstd could not decompress the package (exit {code})")
 	if info is None:
 		raise Refused("the package has no .PKGINFO")
-	return members, info, mtree
+	return members, info, mtree, install
 
 
 def read_with_bsdtar(path):
@@ -280,6 +285,10 @@ def read_with_bsdtar(path):
 			pkginfo = f.read()
 		with open(os.path.join(out, "pax.keys"), "rb") as f:
 			pax_keys = f.read().decode("utf-8", "replace")
+		install = None
+		if os.path.exists(os.path.join(out, "install")):
+			with open(os.path.join(out, "install"), "rb") as f:
+				install = f.read()
 		mtree_list = None
 		if os.path.exists(os.path.join(out, "mtree.list")):
 			with open(os.path.join(out, "mtree.list"), "rb") as f:
@@ -314,18 +323,20 @@ def read_with_bsdtar(path):
 		if mtree_list and not mtree_list.endswith("\n"):
 			raise Refused("the listing of .MTREE by the host's reader does not end with a line feed")
 		mtree = {normal_name(line) for line in mtree_list.split("\n")[:-1]}
-	return members, pkginfo, mtree
+	return members, pkginfo, mtree, install
 
 
-def read_package(path, rules=None, package=None):
+def read_package(path, rules=None, package=None, scriptlets=None):
 	"""The fields of .PKGINFO, as the host's reader sees them, after the two readers agreed on the whole archive.
 
 	With `rules` (pkgpolicy.load of package-paths.txt) and the name of the package, what it installs is judged too."""
 	with open(path, "rb") as f:
 		if f.read(4) != ZSTD_MAGIC:
 			raise Refused("the package does not start with the zstd magic; it is not a tar.zst and is not handed to a decompressor")
-	ours, our_info, mtree = read_with_tarfile(path)
-	theirs, their_info, their_mtree = read_with_bsdtar(path)
+	ours, our_info, mtree, our_install = read_with_tarfile(path)
+	theirs, their_info, their_mtree, their_install = read_with_bsdtar(path)
+	if our_install != their_install:
+		raise Refused("the two readers disagree on the content of .INSTALL")
 	if mtree != their_mtree:
 		raise Refused(".MTREE lists other paths for the two readers (or only one of them found it)")
 	if ours != theirs:
@@ -345,7 +356,8 @@ def read_package(path, rules=None, package=None):
 		raise Refused(f".MTREE and the archive do not list the same paths (only in .MTREE: {only_mtree[:3]}, only in the archive: {only_archive[:3]})")
 	if rules is not None:
 		try:
-			pkgpolicy.check(package, rules, ours, info)
+			install_sha = hashlib.sha256(our_install).hexdigest() if our_install is not None else None
+			pkgpolicy.check(package, rules, ours, info, install_sha, scriptlets)
 		except pkgpolicy.Refused as exc:
 			raise Refused(str(exc))
 	return info
@@ -353,19 +365,19 @@ def read_package(path, rules=None, package=None):
 
 def main():
 	args = sys.argv[1:]
-	rules = package = None
+	rules = package = scriptlets = None
 	try:
-		if len(args) == 5 and args[0] == "--paths" and args[2] == "--package":
-			rules, package = pkgpolicy.load(args[1]), args[3]
-			args = args[4:]
+		if len(args) == 7 and args[0] == "--paths" and args[2] == "--scriptlets" and args[4] == "--package":
+			rules, scriptlets, package = pkgpolicy.load(args[1]), pkgpolicy.load_scriptlets(args[3]), args[5]
+			args = args[6:]
 		elif len(args) == 2 and args[0] == "--no-paths":
 			args = args[1:]
 		else:
 			args = []
 		if len(args) != 1:
-			print("usage: package-reader.py (--paths <file> --package <name> | --no-paths) <package.pkg.tar.zst>", file=sys.stderr)
+			print("usage: package-reader.py (--paths <file> --scriptlets <file> --package <name> | --no-paths) <package.pkg.tar.zst>", file=sys.stderr)
 			return 2
-		print(json.dumps(read_package(args[0], rules, package)))
+		print(json.dumps(read_package(args[0], rules, package, scriptlets)))
 	except Refused as exc:
 		print(f"::error::{exc}", file=sys.stderr)
 		return 1

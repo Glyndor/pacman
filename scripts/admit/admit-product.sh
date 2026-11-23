@@ -3,7 +3,7 @@
 # Admit the pacman packages of the latest release of one product repository.
 #
 #   admit-product.sh --repo <name> --out <dir> [--products <file>] [--ed25519-keys <file>]
-#                    [--mldsa-keys <file>] [--pq-required <file>] [--signers <file>] [--paths <file>] [--python <exe>]
+#                    [--mldsa-keys <file>] [--pq-required <file>] [--signers <file>] [--paths <file>] [--scriptlets <file>] [--python <exe>]
 #
 # The release is resolved once, to a tag, and everything after reads that tag, so a release
 # published while this runs cannot hand the packages and their signatures two versions.
@@ -27,6 +27,7 @@ pq_keys="$HERE/keyring/glyndor-release-mldsa65.b64"
 pq_required="$HERE/keyring/pq-required-products"
 signers="$HERE/scripts/admit/signer-workflows.txt"
 paths="$HERE/scripts/admit/package-paths.txt"
+scriptlets="$HERE/scripts/admit/package-scriptlets.txt"
 python="python3"
 while [ "$#" -gt 0 ]; do
 	[ "$#" -ge 2 ] || { echo "::error::admit-product.sh: $1 needs a value" >&2; exit 2; }
@@ -39,6 +40,7 @@ while [ "$#" -gt 0 ]; do
 		--pq-required) pq_required="$2" ;;
 		--signers) signers="$2" ;;
 		--paths) paths="$2" ;;
+		--scriptlets) scriptlets="$2" ;;
 		--python) python="$2" ;;
 		*) echo "::error::admit-product.sh: unknown option $1" >&2; exit 2 ;;
 	esac
@@ -96,7 +98,7 @@ while IFS=$'\t' read -r _kind _package name _size; do
 done < "$work/plan.tsv"
 
 admit check "${common[@]}" --dir "$dest" --ed25519-keys "$ed_keys" --mldsa-keys "$pq_keys" \
-	--pq-required "$pq_required" --paths "$paths" --python "$python" --out "$stage/$repo.manifest"
+	--pq-required "$pq_required" --paths "$paths" --scriptlets "$scriptlets" --python "$python" --out "$stage/$repo.manifest"
 
 # Provenance: the package was built by a workflow of the repository it came from, FOR THIS TAG. The
 # signature says the release key signed it; this says where and from which commit it was built. An

@@ -33,7 +33,7 @@ while [ "$#" -gt 0 ]; do
 		--out) out="$2" ;;
 		--served) served="$2" ;;
 		--products) products="$2"; pass+=("$1" "$2") ;;
-		--ed25519-keys | --mldsa-keys | --pq-required | --signers | --paths | --python) pass+=("$1" "$2") ;;
+		--ed25519-keys | --mldsa-keys | --pq-required | --signers | --paths | --scriptlets | --python) pass+=("$1" "$2") ;;
 		*) echo "::error::admit-all.sh: unknown option $1" >&2; exit 2 ;;
 	esac
 	shift 2
