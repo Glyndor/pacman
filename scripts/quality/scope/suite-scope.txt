@@ -96,6 +96,12 @@ tests/admit/package-reader.test.sh
 	tests/admit/**
 	tests/fixtures/pacman/**
 
+tests/admit/pkgpolicy.test.sh
+	scripts/admit/**
+	scripts/assemble/**
+	tests/admit/**
+	tests/fixtures/pacman/**
+
 tests/admit/served.test.sh
 	scripts/admit/**
 	tests/admit/**
@@ -106,14 +112,83 @@ tests/admit/verify-sig.test.sh
 	tests/admit/**
 	tests/fixtures/pacman/**
 
+tests/keyring/build-keyring.test.sh
+	scripts/keyring/**
+	scripts/assemble/**
+	keyring/**
+	tests/keyring/**
+	tests/fixtures/pacman/**
+
+tests/keyring/check-keyring.test.sh
+	scripts/keyring/**
+	scripts/admit/**
+	scripts/assemble/**
+	keyring/**
+	tests/keyring/**
+	tests/fixtures/pacman/**
+
+tests/keyring/make-keyring.test.sh
+	scripts/keyring/**
+	scripts/assemble/**
+	keyring/**
+	tests/keyring/**
+	tests/fixtures/pacman/**
+
 tests/keyring/release-keys.test.sh
 	keyring/**
 	tests/keyring/**
 	tests/fixtures/pacman/**
 
+tests/assemble/stage-packages.test.sh
+	scripts/assemble/**
+	scripts/metadata/**
+	tests/assemble/**
+	tests/fixtures/pacman/**
+
 tests/assemble/run-in-arch.test.sh
 	scripts/assemble/**
 	tests/assemble/**
+	tests/fixtures/pacman/**
+
+tests/metadata/dbtool.test.sh
+	scripts/metadata/**
+	tests/metadata/**
+	tests/fixtures/pacman/**
+
+tests/metadata/mkdb.test.sh
+	scripts/metadata/**
+	scripts/assemble/**
+	tests/metadata/**
+	tests/fixtures/pacman/**
+
+tests/metadata/read-served.test.sh
+	scripts/metadata/**
+	scripts/sign/**
+	keyring/**
+	tests/metadata/**
+	tests/fixtures/pacman/**
+
+tests/pages/build-index-page.test.sh
+	scripts/pages/**
+	scripts/metadata/**
+	tests/pages/**
+	tests/fixtures/pacman/**
+
+tests/pages/build-installers.test.sh
+	scripts/pages/**
+	tests/pages/**
+	tests/fixtures/pacman/**
+
+tests/pages/install-template.test.sh
+	scripts/pages/**
+	keyring/**
+	tests/pages/**
+	tests/fixtures/pacman/**
+
+tests/sign/sign-tree.test.sh
+	scripts/sign/**
+	scripts/metadata/**
+	tests/sign/**
 	tests/fixtures/pacman/**
 
 tests/ci/docs/documented-test-command.test.sh

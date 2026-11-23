@@ -38,7 +38,7 @@ admit() { # [extra options]
 	: > "$FAKE_LOG"
 	rm -rf "$WORK/out$N"
 	bash "$SCRIPT" --repo acme --out "$WORK/out$N" --products "$WORK/products.txt" --ed25519-keys "$KEYS/release.b64" \
-		--mldsa-keys "$WORK/none.b64" --pq-required "$WORK/none" --signers "$WORK/signers.txt" "$@"
+		--mldsa-keys "$WORK/none.b64" --pq-required "$WORK/none" --signers "$WORK/signers.txt" --paths "$FIXTURES/paths-permissive.txt" "$@"
 }
 rc_of() {
 	local rc=0
@@ -76,6 +76,7 @@ check "and nothing was downloaded" "0" "$(calls 'release download')"
 echo "-- refused after"
 release
 check "an attestation made for another release of the same product is refused" "1" "$(FAKE_ATTEST_TAG=v1.2.2 rc_of admit)"
+check "and after that refusal the output folder holds nothing" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
 check "and the message names the tag and the commit" "1" "$(grep -c 'for v1.2.3 at' "$WORK/last.out" || true)"
 check "an attestation made by another workflow of the repository is refused" "1" "$(FAKE_ATTEST_WORKFLOW=Glyndor/acme/.github/workflows/test.yml rc_of admit)"
 check "a repository with no signing workflow listed stops the admission" "2" "$(printf 'other\trelease.yml\n' > "$WORK/signers-none.txt"; rc_of admit --signers "$WORK/signers-none.txt")"
@@ -83,11 +84,20 @@ check "an attestation of another commit than the tag's is refused" "1" "$(FAKE_A
 check "a tag whose commit cannot be resolved is refused" "1" "$(FAKE_COMMIT=not-a-sha rc_of admit)"
 release; python3 -I "$FIXTURES/release-key.py" garbage "$FAKE_RELEASES/acme/v1.2.3/$P.sig"
 check "a signature that is not the release key's" "1" "$(rc_of admit)"
+check "and after that refusal the output folder holds nothing" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
 release --set packager="Somebody <x@example.org>"
 check "a package of another vendor" "1" "$(rc_of admit)"
 release
 check "a package without provenance is refused" "1" "$(FAKE_NO_ATTEST="$P" rc_of admit)"
+check "and nothing of it is left in the output folder: no package, no manifest, no tag" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
 check "and the message names the file" "1" "$(grep -c "$P has no provenance" "$WORK/last.out" || true)"
+
+echo "-- a download is capped at the size the release announced"
+release --member "usr/share/acme/big=$(head -c 90000 /dev/urandom | base64 -w0)"
+check "a package that is larger than the listing says is cut off and refused" "1" "$(FAKE_UNDERSTATE="$P" rc_of admit)"
+check "and the message says that it is larger than the release says" "1" "$(grep -c 'larger than the release says' "$WORK/last.out" || true)"
+check "and nothing is left in the output folder" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
+check "the same package with the true size is admitted" "0" "$(rc_of admit)"
 
 echo "-- the latest release carries no package"
 release; rm "$FAKE_RELEASES/acme/v1.2.3/$P" "$FAKE_RELEASES/acme/v1.2.3/$P.sig"; printf x > "$FAKE_RELEASES/acme/v1.2.3/acme_1.2.3_amd64.deb"

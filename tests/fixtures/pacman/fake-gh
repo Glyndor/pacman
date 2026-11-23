@@ -8,7 +8,7 @@
 # release download <tag> --repo Glyndor/<repo> --pattern <glob> --dir <dir> [--clobber], and attestation
 # verify <file> --repo Glyndor/<repo> --source-ref <ref> --source-digest <sha> --signer-workflow <path> --deny-self-hosted-runners (all five
 # are required), and api repos/Glyndor/<repo>/commits/refs/tags/<tag> --jq .sha. FAKE_DIGEST=1 adds the sha256
-# GitHub lists. FAKE_NO_ATTEST names the files (one per line) whose attestation fails. FAKE_ATTEST_TAG is the tag
+# GitHub lists. FAKE_UNDERSTATE names the assets (one per line) whose size the listing understates (1000). FAKE_NO_ATTEST names the files (one per line) whose attestation fails. FAKE_ATTEST_TAG is the tag
 # the attestations were made for (default: whatever is asked), FAKE_ATTEST_DIGEST the commit. Every call is appended to $FAKE_LOG when it is set.
 set -euo pipefail
 export LC_ALL=C
@@ -57,13 +57,13 @@ case "$group $action" in
 				if [ "$jq_filter" = .tagName ]; then printf '%s\n' "$tag"; else printf '{"tagName":"%s"}\n' "$tag"; fi
 				;;
 			assets)
-				python3 -I - "$root/$repo/$tag" "${FAKE_DIGEST:-0}" <<'PY'
+				python3 -I - "$root/$repo/$tag" "${FAKE_DIGEST:-0}" "${FAKE_UNDERSTATE:-}" <<'PY'
 import hashlib, json, os, sys
-folder, digest = sys.argv[1], sys.argv[2] == "1"
+folder, digest, understated = sys.argv[1], sys.argv[2] == "1", sys.argv[3].split()
 assets = []
 for name in sorted(os.listdir(folder)):
 	path = os.path.join(folder, name)
-	item = {"name": name, "size": os.path.getsize(path)}
+	item = {"name": name, "size": 1000 if name in understated else os.path.getsize(path)}
 	if digest:
 		item["digest"] = "sha256:" + hashlib.sha256(open(path, "rb").read()).hexdigest()
 	assets.append(item)

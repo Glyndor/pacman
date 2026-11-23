@@ -120,6 +120,9 @@ check "an asset with a fractional size is refused" "1" "$(refusal '{"assets":[{"
 check "an asset that is not an object is refused, and says so" "1" "$(refusal '{"assets":["a.txt"]}' 'is not an object')"
 check "a listing with no assets key says it is not a release listing" "1" "$(refusal '{"files":[]}' 'is not a release listing')"
 check "a listing whose assets are not a list says so too" "1" "$(refusal '{"assets":{}}' 'is not a release listing')"
+check "a listing that is a JSON array says it is not a release listing, with no traceback" "1" "$(refusal '[]' 'is not a release listing')"
+check "a listing that is a JSON string says so too" "1" "$(refusal '"assets"' 'is not a release listing')"
+check "a listing that is a number says so too" "1" "$(refusal '5' 'is not a release listing')"
 exactly1000=(); for i in $(seq 1 998); do exactly1000+=("note-$i.txt"); done
 check "a release with exactly 1000 assets is read" "2" "$(plan acme v1.2.3 "$A" "$A.sig" "${exactly1000[@]}" | wc -l)"
 

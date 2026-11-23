@@ -3,7 +3,7 @@
 # run-in-arch.sh: the way a script reaches the Arch image. What it must never do is hand that script a
 # network, a capability, a secret or a writable copy of the repository, so the container engine here is a
 # stand-in that writes down its arguments and the tests read them. Whether the image itself runs is the
-# business of build-database.test.sh, which uses the real one.
+# business of stage-packages.test.sh, which uses the real one.
 #
 # Requires: coreutils.
 set -euo pipefail
@@ -34,6 +34,16 @@ check "the image is the one in arch-image.txt, by digest" "1" "$(grep -c -x -F -
 check "the script is run from the read-only copy" "1" "$(has /repo/scripts/admit/list-package.sh)"
 check "the arguments follow the script" "1" "$(has /work/x)"
 check "the environment of the caller does not reach the container (no --env, no --env-file)" "0" "$(grep -c -e '^--env' "$ENGINE_LOG" || true)"
+echo "-- the container runs as the user who started it"
+mkdir -p "$WORK/eng-docker" "$WORK/eng-podman"
+cp "$WORK/engine" "$WORK/eng-docker/docker"
+cp "$WORK/engine" "$WORK/eng-podman/podman"
+UIDGID="$(id -u):$(id -g)"
+check "with docker, the user id and the group id of the caller" "1" "$(CONTAINER_ENGINE="$WORK/eng-docker/docker" bash "$SCRIPT" scripts/admit/list-package.sh "$WORK/work" > /dev/null 2>&1; has "$UIDGID")"
+check "and nothing that is root, so what it writes is not the property of another user" "0" "$(grep -c -x -e 0 -e 0:0 "$ENGINE_LOG" || true)"
+check "with docker, no user namespace option" "0" "$(grep -c -e '^--userns' "$ENGINE_LOG" || true)"
+check "with podman, keep-id, so that the user of the container is the caller" "1" "$(CONTAINER_ENGINE="$WORK/eng-podman/podman" bash "$SCRIPT" scripts/admit/list-package.sh "$WORK/work" > /dev/null 2>&1; has --userns=keep-id)"
+check "and the same user id and group id" "1" "$(has "$UIDGID")"
 check "a script outside scripts/ is refused" "2" "$(rc_of run /bin/sh "$WORK/work")"
 check "a path that climbs is refused" "2" "$(rc_of run scripts/../tests/x.sh "$WORK/work")"
 check "a script that is not a .sh is refused" "2" "$(rc_of run scripts/metadata/dbtool.py "$WORK/work")"

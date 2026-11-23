@@ -33,7 +33,7 @@ while [ "$#" -gt 0 ]; do
 		--out) out="$2" ;;
 		--served) served="$2" ;;
 		--products) products="$2"; pass+=("$1" "$2") ;;
-		--ed25519-keys | --mldsa-keys | --pq-required | --signers | --python) pass+=("$1" "$2") ;;
+		--ed25519-keys | --mldsa-keys | --pq-required | --signers | --paths | --scriptlets | --python) pass+=("$1" "$2") ;;
 		*) echo "::error::admit-all.sh: unknown option $1" >&2; exit 2 ;;
 	esac
 	shift 2
@@ -49,8 +49,15 @@ fi
 allow=()
 [ "$first" = no ] || allow=(--allow-empty)
 python3 -I "$HERE/scripts/admit/served.py" --served "$served" --manifest /dev/null "${allow[@]}" > /dev/null || exit 1
-mkdir -p "$out"
 [ ! -e "$out/manifest.tsv" ] || { echo "::error::$out/manifest.tsv already exists" >&2; exit 2; }
+if [ -d "$out" ] && [ -n "$(ls -A "$out")" ]; then
+	echo "::error::$out is not empty; a publication is admitted into an empty place" >&2
+	exit 2
+fi
+# Everything is admitted in a folder of our own and moved into <out> after the last gate (the comparison with what is
+# served included), so a refusal leaves <out> as it was.
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
 
 # Repositories in the order of the file, each once.
 repos=()
@@ -72,7 +79,7 @@ while IFS=$'\t' read -r served_name _rest; do
 done < "$served"
 for repo in "${repos[@]}"; do
 	rc=0
-	bash "$HERE/scripts/admit/admit-product.sh" --repo "$repo" --out "$out" "${pass[@]}" || rc=$?
+	bash "$HERE/scripts/admit/admit-product.sh" --repo "$repo" --out "$stage" "${pass[@]}" || rc=$?
 	case "$rc" in
 		0) continue ;;
 		10) ;;
@@ -88,14 +95,28 @@ for repo in "${repos[@]}"; do
 	echo "::notice::Glyndor/$repo has no pacman package yet and none is served: skipped"
 done
 
-: > "$out/manifest.tsv"
+: > "$stage/manifest.tsv"
 for repo in "${repos[@]}"; do
-	[ ! -f "$out/$repo.manifest" ] || cat "$out/$repo.manifest" >> "$out/manifest.tsv"
+	[ ! -f "$stage/$repo.manifest" ] || cat "$stage/$repo.manifest" >> "$stage/manifest.tsv"
 done
-[ -s "$out/manifest.tsv" ] || { echo "::error::no product carried a package; refusing to publish an empty repository" >&2; exit 1; }
+[ -s "$stage/manifest.tsv" ] || { echo "::error::no product carried a package; refusing to publish an empty repository" >&2; exit 1; }
 # A published identity never changes bytes and a version never goes backwards: the candidate is compared with what is
 # served, by the numbers of X.Y.Z[+rN]-1, and refused when it is older or has other bytes under the same version.
-python3 -I "$HERE/scripts/admit/served.py" --served "$served" --manifest "$out/manifest.tsv" "${allow[@]}" > /dev/null || exit 1
-dups="$(cut -f2 "$out/manifest.tsv" | sort | uniq -d)"
+python3 -I "$HERE/scripts/admit/served.py" --served "$served" --manifest "$stage/manifest.tsv" "${allow[@]}" > /dev/null || exit 1
+# What the packages say (.PKGINFO), of every product in one file, for the signer to compare the database with.
+python3 -I - "$stage" "${repos[@]}" <<'PY'
+import json, os, sys
+out, repos = sys.argv[1], sys.argv[2:]
+merged = {}
+for repo in repos:
+	path = os.path.join(out, repo + ".manifest.pkginfo.json")
+	if os.path.exists(path):
+		merged.update(json.load(open(path)))
+with open(os.path.join(out, "pkginfo.json"), "x") as f:
+	json.dump(merged, f, sort_keys=True)
+PY
+dups="$(cut -f2 "$stage/manifest.tsv" | sort | uniq -d)"
 [ -z "$dups" ] || { echo "::error::two products admit the same package: $dups" >&2; exit 1; }
+mkdir -p "$out"
+mv -- "$stage"/* "$out"/
 echo "admitted $(wc -l < "$out/manifest.tsv") package(s)"

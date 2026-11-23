@@ -1,0 +1,11 @@
+# The .INSTALL scriptlets that a package may carry, one line each: the package, a TAB, the SHA-256 of the exact bytes of its
+# .INSTALL, a TAB and the reason it is there.
+#
+# pacman runs an .INSTALL as root (pre_install, post_install, pre_upgrade, post_upgrade, pre_remove, post_remove), so what it holds
+# is code that runs on every host that installs the package. A package with no line cannot carry one; a hash that is not listed
+# for the package refuses the release, and the refusal prints the hash it saw, so that a person can read the script and add the
+# line in a pull request. Several lines for one package are the versions of its script.
+#
+# Today no product publishes a pacman package, and the one of Podman that Glyndor builds has no recipe yet, so the list is empty.
+# The package that carries the key of the repository (glyndor-keyring) is made by the channel and compared with a fixed list of
+# bytes elsewhere (scripts/keyring/check-keyring.py); it is not judged by this file.

@@ -6,9 +6,12 @@
 # package        the pacman package name. The file is <package>-<version>-1-<arch>.pkg.tar.zst.
 # architectures  x86_64, any, or x86_64|any when either is acceptable (exactly one is admitted).
 #                Arch Linux has no official aarch64 port, so there is no other value.
-# relations      the names, besides its own, that the package may list in provides, conflicts
-#                and replaces of its .PKGINFO, comma separated; - for none. A package that can
-#                replace something it does not name here could remove any package of a host.
+# relations      the forms, besides its own name, that the package may list in provides, conflict,
+#                replaces, and group, of its .PKGINFO, comma separated; - for none. A form is a name, or a name with
+#                the one constraint the package may carry (netavark=2.1.0), written exactly as .PKGINFO writes it.
+#                conflict, replaces and group take only the forms listed, letter for letter; provides takes them too,
+#                and a listed name with no constraint may also carry the version of the package itself. A package that
+#                can replace something it does not name here could remove any package of a host.
 #
 # A repository that has no package of this file in its latest release is skipped with a notice
 # while none of its packages is served; once one is served, its absence stops the publication.
@@ -16,7 +19,7 @@
 # carries the packages (contrato-productos.md) they are served, with no change here.
 #
 # What a product has to attach to its release is docs/product-contract.md.
-podman	podman	x86_64	netavark,aardvark-dns,containers-common,podman-remote,container-network-stack
+podman	podman	x86_64	netavark,aardvark-dns,netavark=2.1.0,aardvark-dns=2.1.0,podman-remote,container-network-stack,container-network-stack=2
 podman	podman-docker	any	docker
 podup	podup	x86_64	-
 epistle	epistle	x86_64	-

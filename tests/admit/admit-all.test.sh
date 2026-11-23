@@ -40,9 +40,11 @@ releases() {
 admit() { # <served file> [options]
 	local served="$1"
 	shift
+	# the stand-in of gh appends to this log from inside the capped download, so it is kept short
+	[ -z "${FAKE_LOG:-}" ] || : > "$FAKE_LOG"
 	rm -rf "$WORK/out$N"
 	bash "$SCRIPT" --out "$WORK/out$N" --served "$served" --products "$WORK/products.txt" --ed25519-keys "$KEYS/release.b64" \
-		--mldsa-keys "$WORK/none.b64" --pq-required "$WORK/none" --signers "$WORK/signers.txt" "$@"
+		--mldsa-keys "$WORK/none.b64" --pq-required "$WORK/none" --signers "$WORK/signers.txt" --paths "$FIXTURES/paths-permissive.txt" "$@"
 }
 rc_of() {
 	local rc=0
@@ -61,6 +63,7 @@ line acme 0.9.0-1 > "$WORK/served-one"
 
 releases
 check "two products with packages and one without, none of it served: admitted" "0" "$(rc_of admit "$WORK/served-none" --first-publication)"
+check "the fields of every package are kept in one file, for the signer" "acme-1.0.0-1-x86_64.pkg.tar.zst third-1.0.0-1-x86_64.pkg.tar.zst" "$(python3 -I -c 'import json,sys; print(*sorted(json.load(open(sys.argv[1]))))' "$WORK/out$N/pkginfo.json")"
 check "the manifest has the two packages" "acme
 third" "$(cut -f2 "$WORK/out$N/manifest.tsv")"
 check "the product with nothing yet is skipped with a notice" "1" "$(says 'Glyndor/later has no pacman package yet and none is served')"
@@ -88,6 +91,7 @@ echo "-- a version never goes backwards"
 releases
 check "a served version that is newer than the release is refused" "1" "$(line acme 1.0.1-1 > "$WORK/served-newer"; rc_of admit "$WORK/served-newer")"
 check "and says that a version never goes backwards" "1" "$(says 'never goes backwards')"
+check "and after that refusal the output folder holds nothing: no package, no manifest" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
 check "newer by the revision of the same version" "1" "$(line acme 1.0.0+r2-1 > "$WORK/served-newer"; rc_of admit "$WORK/served-newer")"
 check "1.10.0 is newer than a served 1.9.0, as numbers and not as text" "0" "$(rm -rf "$FAKE_RELEASES/acme/v1.0.0"; mkdir -p "$FAKE_RELEASES/acme/v1.10.0"; printf 'v1.10.0\n' > "$FAKE_RELEASES/acme/LATEST"; add_pkg "$FAKE_RELEASES/acme/v1.10.0" "$KEYS" acme 1.10.0-1 x86_64; { line acme 1.9.0-1; line third 0.9.0-1; } > "$WORK/served-text"; rc_of admit "$WORK/served-text")"
 releases
@@ -128,6 +132,10 @@ check "no product carries a package: refused even as the first publication" "1" 
 	"$(rm -rf "$FAKE_RELEASES"/*/v1.0.0/*; for r in acme later third; do printf x > "$FAKE_RELEASES/$r/v1.0.0/${r}_1_amd64.deb"; done; rc_of admit "$WORK/served-none" --first-publication)"
 check "and says that it will not publish an empty repository" "1" "$(says 'empty repository')"
 check "a release that is refused stops the run" "1" "$(releases; add_pkg "$FAKE_RELEASES/acme/v1.0.0" "$KEYS" evil 1.0.0-1 x86_64; rc_of admit "$WORK/served-two")"
+check "and the output folder holds nothing of the products that passed before it" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
+releases
+check "a folder that is not empty is refused, and left as it was" "2" "$(mkdir -p "$WORK/out$N"; : > "$WORK/out$N/something"; rc_of bash "$SCRIPT" --out "$WORK/out$N" --served "$WORK/served-two" --products "$WORK/products.txt" --paths "$FIXTURES/paths-permissive.txt")"
+check "and it still holds only what it held" "something" "$(ls "$WORK/out$N")"
 check "an option that is not known" "2" "$(releases; rc_of admit "$WORK/served-two" --nope x)"
 check "an output folder that already holds a manifest" "2" "$(releases; mkdir -p "$WORK/out$N"; : > "$WORK/out$N/manifest.tsv"; rc_of bash "$SCRIPT" --out "$WORK/out$N" --served "$WORK/served-two" --products "$WORK/products.txt")"
 

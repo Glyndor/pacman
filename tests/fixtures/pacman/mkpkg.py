@@ -9,6 +9,7 @@ PKGVER is the whole pkgver, revision included (1.2.3-1). The defaults are what t
 channel admits; every option breaks one thing on purpose.
 """
 import argparse
+import gzip
 import io
 import subprocess
 import sys
@@ -35,10 +36,14 @@ parser.add_argument("--no-end-mark", action="store_true", help="cut the zero blo
 parser.add_argument("--zero-trailer", type=int, default=0, help="this many zero bytes after the archive")
 parser.add_argument("--junk-trailer", type=int, default=0, help="this many non-zero bytes after the archive")
 parser.add_argument("--tar-trailer", action="store_true", help="a second complete tar archive after the first")
+parser.add_argument("--huge-header", metavar="TYPE", help="a header of this type (x, g, L, K) that claims two gigabytes of extension and has none")
 parser.add_argument("--global-pax", action="store_true", help="a global pax header at the start")
 parser.add_argument("--typeflag", action="append", default=[], help="TYPE=name: a member with that raw type flag, no data")
 parser.add_argument("--dir-pax-size", action="append", default=[], help="name=N: a folder whose pax header says it has N bytes")
 parser.add_argument("--second-pkginfo", action="store_true")
+parser.add_argument("--mode", action="append", default=[], help="path=OCTAL: the mode of that member (default 644)")
+parser.add_argument("--bad-mtree", help="what .MTREE holds instead of the listing of the members: junk, extra (a path that is not in the archive), missing (one left out), absolute, dotdot, twomembers, trailing, cut, continued, command, duplicate")
+parser.add_argument("--xattr", action="append", default=[], help="path=KEY=VALUE: a pax header KEY with VALUE on that member (SCHILY.xattr.security.capability, for one)")
 args = parser.parse_args()
 
 fields = [
@@ -66,61 +71,126 @@ if args.escapes:
 text = "".join(f"{k} = {v}\n" for k, v in fields)
 
 
+pax = {}
+for item in args.xattr:
+	path, _, rest = item.partition("=")
+	key, _, value = rest.partition("=")
+	pax.setdefault(path, {})[key] = value
+modes = {item.partition("=")[0]: int(item.partition("=")[2], 8) for item in args.mode}
+written = []
+
+
+def escape(name):
+	"""A name as mtree writes it: anything that is not plain is a backslash and three octal digits."""
+	return "".join(c if c.isalnum() and c.isascii() or c in "._/+@-" else "\\%03o" % ord(c) for c in name)
+
+
+def mtree_of(names):
+	"""An .MTREE as makepkg writes it: gzip of mtree text listing every member but itself, `./` first."""
+	names = [n for n in names if n != ".MTREE"]
+	if args.bad_mtree == "extra":
+		names.append("usr/not/in/the/archive")
+	elif args.bad_mtree == "missing" and names:
+		names.pop()
+	elif args.bad_mtree == "absolute":
+		names.append("/etc/pacman.conf")
+	elif args.bad_mtree == "dotdot":
+		names.append("../x")
+	if args.bad_mtree == "junk":
+		return b"#mtree\nnot gzip\n"
+	if args.bad_mtree == "duplicate":
+		names.append(names[0])
+	text = "#mtree\n/set type=file uid=0 gid=0 mode=644\n" + "".join(f"./{escape(n)} time=0.0 size=1\n" for n in names)
+	if args.bad_mtree == "continued":
+		text += "./usr/x time=0.0 \\\nsize=1\n"
+	if args.bad_mtree == "command":
+		text += "/unknown foo\n"
+
+	def gz(content):
+		data = io.BytesIO()
+		with gzip.GzipFile(fileobj=data, mode="wb", mtime=0) as z:
+			z.write(content.encode())
+		return data.getvalue()
+
+	if args.bad_mtree == "twomembers":
+		return gz(text) + gz("./etc/evil time=0.0\n")
+	if args.bad_mtree == "trailing":
+		return gz(text) + b"garbage"
+	if args.bad_mtree == "cut":
+		return gz(text)[:-8]
+	return gz(text)
+
+
 def add(archive, name, data=b"", kind=tarfile.REGTYPE, link=""):
 	info = tarfile.TarInfo(name)
-	info.mtime, info.uid, info.gid, info.uname, info.gname, info.mode = 0, 0, 0, "root", "root", 0o644
+	info.mtime, info.uid, info.gid, info.uname, info.gname, info.mode = 0, 0, 0, "root", "root", modes.get(name, 0o644)
+	written.append(name)
+	info.pax_headers = dict(pax.get(name, {}))
 	info.type, info.linkname = kind, link
 	info.size = len(data) if kind == tarfile.REGTYPE else 0
 	archive.addfile(info, io.BytesIO(data) if kind == tarfile.REGTYPE else None)
 
 
+def body(buffer, mtree):
+	with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT, pax_headers={"comment": "global"} if args.global_pax else None) as archive:
+		if args.makepkg_layout:
+			# the order makepkg 7.1.0 writes: .BUILDINFO, .MTREE, .PKGINFO, then the files
+			add(archive, ".BUILDINFO", b"format = 2\n")
+			add(archive, ".MTREE", mtree)
+		if args.late_pkginfo:
+			add(archive, f"usr/share/{args.name}/first", b"x")
+		if not args.no_pkginfo:
+			add(archive, ".PKGINFO", text.encode())
+		if args.second_pkginfo:
+			add(archive, ".PKGINFO", text.encode())
+		# entries whose name starts with a dot come first, as in a package from makepkg
+		for item in args.member:
+			path, _, content = item.partition("=")
+			if path.startswith("."):
+				add(archive, path, open(content[1:], "rb").read() if content.startswith("@") else content.encode())
+		for item in args.symlink:
+			path, _, target = item.partition("=")
+			if path.startswith("."):
+				add(archive, path, kind=tarfile.SYMTYPE, link=target)
+		add(archive, f"usr/share/{args.name}/README", b"test\n")
+		for item in args.member:
+			if item.startswith("."):
+				continue
+			path, _, content = item.partition("=")
+			add(archive, path, content.encode())
+		for item in args.raw_member:
+			add(archive, item, b"x")
+		for item in args.symlink:
+			path, _, target = item.partition("=")
+			if not path.startswith("."):
+				add(archive, path, kind=tarfile.SYMTYPE, link=target)
+		for item in args.hardlink:
+			path, _, target = item.partition("=")
+			add(archive, path, kind=tarfile.LNKTYPE, link=target)
+		if args.huge_header:
+			info = tarfile.TarInfo("PaxHeaders/x")
+			info.type, info.size = args.huge_header.encode(), 2 * 1024**3
+			archive.fileobj.write(info.tobuf(tarfile.GNU_FORMAT, "utf-8", "surrogateescape"))
+		for item in args.typeflag:
+			flag, _, path = item.partition("=")
+			add(archive, path, kind=flag.encode())
+		for item in args.dir_pax_size:
+			path, _, size = item.partition("=")
+			info = tarfile.TarInfo(path)
+			info.type, info.mode = tarfile.DIRTYPE, 0o755
+			info.pax_headers = {"size": size}
+			archive.addfile(info)
+		for item in args.device:
+			add(archive, item, kind=tarfile.CHRTYPE)
+
+
+# The listing in .MTREE has to name the members that are written, so the archive is written once to find them out and again with the listing.
+written.clear()
+body(io.BytesIO(), b"")
+names = list(written)
+written.clear()
 buffer = io.BytesIO()
-with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT, pax_headers={"comment": "global"} if args.global_pax else None) as archive:
-	if args.makepkg_layout:
-		# the order makepkg 7.1.0 writes: .BUILDINFO, .MTREE, .PKGINFO, then the files
-		add(archive, ".BUILDINFO", b"format = 2\n")
-		add(archive, ".MTREE", b"#mtree\n")
-	if args.late_pkginfo:
-		add(archive, f"usr/share/{args.name}/first", b"x")
-	if not args.no_pkginfo:
-		add(archive, ".PKGINFO", text.encode())
-	if args.second_pkginfo:
-		add(archive, ".PKGINFO", text.encode())
-	# entries whose name starts with a dot come first, as in a package from makepkg
-	for item in args.member:
-		path, _, content = item.partition("=")
-		if path.startswith("."):
-			add(archive, path, open(content[1:], "rb").read() if content.startswith("@") else content.encode())
-	for item in args.symlink:
-		path, _, target = item.partition("=")
-		if path.startswith("."):
-			add(archive, path, kind=tarfile.SYMTYPE, link=target)
-	add(archive, f"usr/share/{args.name}/README", b"test\n")
-	for item in args.member:
-		if item.startswith("."):
-			continue
-		path, _, content = item.partition("=")
-		add(archive, path, content.encode())
-	for item in args.raw_member:
-		add(archive, item, b"x")
-	for item in args.symlink:
-		path, _, target = item.partition("=")
-		if not path.startswith("."):
-			add(archive, path, kind=tarfile.SYMTYPE, link=target)
-	for item in args.hardlink:
-		path, _, target = item.partition("=")
-		add(archive, path, kind=tarfile.LNKTYPE, link=target)
-	for item in args.typeflag:
-		flag, _, path = item.partition("=")
-		add(archive, path, kind=flag.encode())
-	for item in args.dir_pax_size:
-		path, _, size = item.partition("=")
-		info = tarfile.TarInfo(path)
-		info.type, info.mode = tarfile.DIRTYPE, 0o755
-		info.pax_headers = {"size": size}
-		archive.addfile(info)
-	for item in args.device:
-		add(archive, item, kind=tarfile.CHRTYPE)
+body(buffer, mtree_of(names))
 data = buffer.getvalue()
 if args.no_end_mark:
 	data = data.rstrip(b"\0")
