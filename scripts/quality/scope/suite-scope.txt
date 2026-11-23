@@ -205,6 +205,11 @@ tests/ci/suites/step-script.test.sh
 	tests/fixtures/ci/step-script.sh
 	tests/ci/suites/step-script.test.sh
 
+tests/keyring/readme-fingerprint.test.sh
+	README.md
+	keyring/**
+	tests/keyring/**
+
 tests/keyring/archive-key.test.sh
 	keyring/**
 	tests/keyring/**
