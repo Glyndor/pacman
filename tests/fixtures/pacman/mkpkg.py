@@ -35,6 +35,7 @@ parser.add_argument("--no-end-mark", action="store_true", help="cut the zero blo
 parser.add_argument("--zero-trailer", type=int, default=0, help="this many zero bytes after the archive")
 parser.add_argument("--junk-trailer", type=int, default=0, help="this many non-zero bytes after the archive")
 parser.add_argument("--tar-trailer", action="store_true", help="a second complete tar archive after the first")
+parser.add_argument("--huge-header", metavar="TYPE", help="a header of this type (x, g, L, K) that claims two gigabytes of extension and has none")
 parser.add_argument("--global-pax", action="store_true", help="a global pax header at the start")
 parser.add_argument("--typeflag", action="append", default=[], help="TYPE=name: a member with that raw type flag, no data")
 parser.add_argument("--dir-pax-size", action="append", default=[], help="name=N: a folder whose pax header says it has N bytes")
@@ -110,6 +111,10 @@ with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT, pax_heade
 	for item in args.hardlink:
 		path, _, target = item.partition("=")
 		add(archive, path, kind=tarfile.LNKTYPE, link=target)
+	if args.huge_header:
+		info = tarfile.TarInfo("PaxHeaders/x")
+		info.type, info.size = args.huge_header.encode(), 2 * 1024**3
+		archive.fileobj.write(info.tobuf(tarfile.GNU_FORMAT, "utf-8", "surrogateescape"))
 	for item in args.typeflag:
 		flag, _, path = item.partition("=")
 		add(archive, path, kind=flag.encode())

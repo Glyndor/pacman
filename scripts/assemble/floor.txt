@@ -1,0 +1,8 @@
+# The highest version of each package this repository has admitted, one per line, two fields separated by a TAB:
+#
+#   package <TAB> pkgver
+#
+# A durable record that does not depend on what the bucket serves, kept in the repository and raised by a reviewed
+# pull request. stage-packages.sh refuses a package whose version is below its line, so a database that is
+# served again from an old copy, or a release that is marked as the latest again, cannot take a package back.
+# Empty today: nothing has been published.

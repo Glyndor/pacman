@@ -278,7 +278,7 @@ def run_check(args):
 		if digest is not None and sha256_of(path) != digest:
 			raise Refused(f"{name} does not match the sha256 GitHub lists for it")
 	work = tempfile.mkdtemp(prefix="admit.")
-	rows = []
+	rows, infos = [], {}
 	try:
 		for package, arch, name in sorted((p, a, n) for kind, p, a, n, s, d in plan if kind == "package"):
 			copies = {}
@@ -301,7 +301,8 @@ def run_check(args):
 				raise ConfigError(f"the release key files are broken: {done.stderr.strip()}")
 			if done.returncode != 0:
 				raise Refused(f"{name} is not signed by the release key: {done.stderr.strip() or done.stdout.strip()}")
-			check_fields(read_package(copies["package"][0]), package, arch, version, name, products[package][1], set(products))
+			infos[name] = read_package(copies["package"][0])
+			check_fields(infos[name], package, arch, version, name, products[package][1], set(products))
 			if sha256_of(os.path.join(args.dir, name)) != copies["package"][1]:
 				raise Refused(f"{name} changed while it was being verified")
 			rows.append((args.repo, package, f"{version}-1", arch, name, str(os.lstat(os.path.join(args.dir, name)).st_size),
@@ -310,6 +311,10 @@ def run_check(args):
 		for entry in os.listdir(work):
 			os.unlink(os.path.join(work, entry))
 		os.rmdir(work)
+	# What the packages say, beside the manifest: the signer compares the database with it and opens no archive.
+	fd = os.open(args.out + ".pkginfo.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+	with os.fdopen(fd, "w") as out:
+		json.dump(infos, out, sort_keys=True)
 	fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
 	with os.fdopen(fd, "w") as out:
 		for row in rows:

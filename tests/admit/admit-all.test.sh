@@ -61,6 +61,7 @@ line acme 0.9.0-1 > "$WORK/served-one"
 
 releases
 check "two products with packages and one without, none of it served: admitted" "0" "$(rc_of admit "$WORK/served-none" --first-publication)"
+check "the fields of every package are kept in one file, for the signer" "acme-1.0.0-1-x86_64.pkg.tar.zst third-1.0.0-1-x86_64.pkg.tar.zst" "$(python3 -I -c 'import json,sys; print(*sorted(json.load(open(sys.argv[1]))))' "$WORK/out$N/pkginfo.json")"
 check "the manifest has the two packages" "acme
 third" "$(cut -f2 "$WORK/out$N/manifest.tsv")"
 check "the product with nothing yet is skipped with a notice" "1" "$(says 'Glyndor/later has no pacman package yet and none is served')"

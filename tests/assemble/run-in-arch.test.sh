@@ -3,7 +3,7 @@
 # run-in-arch.sh: the way a script reaches the Arch image. What it must never do is hand that script a
 # network, a capability, a secret or a writable copy of the repository, so the container engine here is a
 # stand-in that writes down its arguments and the tests read them. Whether the image itself runs is the
-# business of build-database.test.sh, which uses the real one.
+# business of stage-packages.test.sh, which uses the real one.
 #
 # Requires: coreutils.
 set -euo pipefail

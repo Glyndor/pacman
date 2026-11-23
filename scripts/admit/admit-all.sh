@@ -96,6 +96,18 @@ done
 # A published identity never changes bytes and a version never goes backwards: the candidate is compared with what is
 # served, by the numbers of X.Y.Z[+rN]-1, and refused when it is older or has other bytes under the same version.
 python3 -I "$HERE/scripts/admit/served.py" --served "$served" --manifest "$out/manifest.tsv" "${allow[@]}" > /dev/null || exit 1
+# What the packages say (.PKGINFO), of every product in one file, for the signer to compare the database with.
+python3 -I - "$out" "${repos[@]}" <<'PY'
+import json, os, sys
+out, repos = sys.argv[1], sys.argv[2:]
+merged = {}
+for repo in repos:
+	path = os.path.join(out, repo + ".manifest.pkginfo.json")
+	if os.path.exists(path):
+		merged.update(json.load(open(path)))
+with open(os.path.join(out, "pkginfo.json"), "x") as f:
+	json.dump(merged, f, sort_keys=True)
+PY
 dups="$(cut -f2 "$out/manifest.tsv" | sort | uniq -d)"
 [ -z "$dups" ] || { echo "::error::two products admit the same package: $dups" >&2; exit 1; }
 echo "admitted $(wc -l < "$out/manifest.tsv") package(s)"

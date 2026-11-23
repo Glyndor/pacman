@@ -52,7 +52,8 @@ done
 check "makepkg built the split package (three tries, the mirrors are the network's)" "1" "$built"
 if [ "$built" -ne 1 ]; then tail -20 "$WORK/makepkg.log"; finish; exit 1; fi
 check "it made two members" "2" "$(find "$WORK/mk/out" -name '*.pkg.tar.zst' | wc -l)"
-printf 'podman\tpodman\tx86_64\tnetavark,container-network-stack\npodman\tpodman-docker\tany\tdocker\n' > "$WORK/products.txt"
+# The lines of podman in the products file of the repository, which are the ones that have to admit its real packages
+grep -P '^podman\t' "$HERE/scripts/admit/products.txt" > "$WORK/products.txt"
 : > "$WORK/no-required"
 
 # release <folder>: the two members as a release carries them, signed
@@ -65,7 +66,7 @@ release() {
 }
 admit() { # <release folder>
 	local repo_dir="$WORK/r/podman"
-	rm -rf "$WORK/r" "$WORK/dl" "$WORK/out.tsv"
+	rm -rf "$WORK/r" "$WORK/dl" "$WORK/out.tsv" "$WORK/out.tsv.pkginfo.json"
 	mkdir -p "$repo_dir"
 	cp -a "$1" "$repo_dir/v1.2.3"
 	FAKE_RELEASES="$WORK/r" bash "$FIXTURES/fake-gh" release view v1.2.3 --repo Glyndor/podman --json assets > "$WORK/listing.json"
@@ -96,6 +97,12 @@ mangle() { # <sed expression on .PKGINFO>: a copy of podman-docker whose .PKGINF
 rc_of() { local rc=0; "$@" || rc=$?; echo "$rc"; }
 says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
 # shellcheck disable=SC2016 # sed programs, not shell
+# shellcheck disable=SC2016
+check "a package that replaces containers-common, which v2.2 forbids, is refused" "1" "$(rc_of mangle '$a replaces = containers-common')"
+check "and the refusal names it" "1" "$(says 'lists containers-common in replaces')"
+# shellcheck disable=SC2016
+check "a package that provides containers-common is refused" "1" "$(rc_of mangle '$a provides = containers-common')"
+# shellcheck disable=SC2016
 check "a hostile 'conflict = openssl' added by hand is refused" "1" "$(rc_of mangle '$a conflict = openssl')"
 check "and the refusal names the conflict" "1" "$(says 'lists openssl in conflict')"
 # shellcheck disable=SC2016

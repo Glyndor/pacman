@@ -16,7 +16,7 @@
 # carries the packages (contrato-productos.md) they are served, with no change here.
 #
 # What a product has to attach to its release is docs/product-contract.md.
-podman	podman	x86_64	netavark,aardvark-dns,containers-common,podman-remote,container-network-stack
+podman	podman	x86_64	netavark,aardvark-dns,podman-remote,container-network-stack
 podman	podman-docker	any	docker
 podup	podup	x86_64	-
 epistle	epistle	x86_64	-

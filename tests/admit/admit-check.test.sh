@@ -28,7 +28,7 @@ P="acme-1.2.3-1-x86_64.pkg.tar.zst"
 release() { N=$((N + 1)); REL="$WORK/r$N/acme/v1.2.3"; mkdir -p "$REL"; DL="$WORK/r$N/dl"; }
 # attempt [extra admit.py options...]: download what the listing names into DL, then check it
 attempt() {
-	rm -rf "$DL" "$WORK/out.tsv"
+	rm -rf "$DL" "$WORK/out.tsv" "$WORK/out.tsv.pkginfo.json"
 	cp -a "$REL" "$DL"
 	listing "$REL" > "$WORK/listing.json"
 	[ -z "${AFTER:-}" ] || ( cd "$DL" && eval "$AFTER" )
@@ -47,6 +47,7 @@ good() { release; add_pkg "$REL" "$KEYS" acme 1.2.3-1 x86_64 "$@"; }
 
 good
 check "a package signed by the release key with the right fields is admitted" "0" "$(rc_of attempt)"
+check "the fields the admission read are kept beside it, for the signer" "acme" "$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["pkgname"][0])' "$WORK/out.tsv.pkginfo.json" "$P")"
 check "and the manifest says repository, package, pkgver, arch, file, size, sha256, second signature" \
 	"acme	acme	1.2.3-1	x86_64	$P	$(stat -c%s "$REL/$P")	$(sha256sum "$REL/$P" | cut -d' ' -f1)	no" "$(cat "$WORK/out.tsv")"
 
@@ -117,13 +118,19 @@ good --set provides=acme=1.2.3-1; check "providing itself with a version is acce
 good --append depend=podman'>=6.2.0' --append optdepend=foo; check "free dependency fields are accepted" "0" "$(rc_of attempt)"
 good --set pkgname=acme --set 'bad line'; check "a .PKGINFO line that is not key = value is refused" "1" "$(rc_of attempt)"
 # podman is the one product whose line names relations: what it may replace, provide and conflict with
-printf 'podman\tpodman\tx86_64\tnetavark,container-network-stack,podman-remote\n' > "$WORK/products.txt"
+printf 'podman\tpodman\tx86_64\tnetavark,aardvark-dns,container-network-stack,podman-remote\n' > "$WORK/products.txt"
 N=$((N + 1)); REL="$WORK/r$N/podman/v1.2.3"; DL="$WORK/r$N/dl"; REPO=podman
-add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --set replaces=netavark --set provides=container-network-stack=2 --set conflicts=podman-remote
+add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --append replaces=netavark --append replaces=aardvark-dns --append provides=container-network-stack=2 --append conflict=aardvark-dns --append depend=containers-common
 check "podman may replace, provide and conflict with exactly the names its line lists" "0" "$(rc_of attempt)"
 N=$((N + 1)); REL="$WORK/r$N/podman/v1.2.3"; DL="$WORK/r$N/dl"
 add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --set replaces=netavark --set replaces=linux
 check "and one more replaced name is refused" "1" "$(rc_of attempt)"
+N=$((N + 1)); REL="$WORK/r$N/podman/v1.2.3"; DL="$WORK/r$N/dl"
+add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --append replaces=containers-common
+check "podman replacing containers-common (the contract v2.2 takes it out of the list) is refused" "1" "$(rc_of attempt)"
+N=$((N + 1)); REL="$WORK/r$N/podman/v1.2.3"; DL="$WORK/r$N/dl"
+add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --append provides=containers-common=1:0.70.0
+check "podman providing containers-common is refused" "1" "$(rc_of attempt)"
 REPO=acme
 printf 'acme\tacme\tx86_64\t-\n' > "$WORK/products.txt"
 

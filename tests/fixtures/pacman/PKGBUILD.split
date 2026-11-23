@@ -11,9 +11,12 @@ license=(MIT)
 options=(!strip !debug)
 
 package_podman() {
-	provides=(netavark container-network-stack=2)
-	conflicts=(netavark)
-	replaces=(netavark)
+	# The relations of the contract (v2.2): it replaces netavark and aardvark-dns, provides the network stack, and
+	# depends on the containers-common of Arch, which it neither provides, conflicts with nor replaces.
+	depends=(containers-common)
+	provides=("netavark=2.1.0" "aardvark-dns=2.1.0" container-network-stack=2 podman-remote)
+	conflicts=(netavark aardvark-dns)
+	replaces=(netavark aardvark-dns)
 	install -d "$pkgdir/usr/bin"
 	printf '#!/bin/sh\necho podman\n' > "$pkgdir/usr/bin/podman"
 	chmod 755 "$pkgdir/usr/bin/podman"

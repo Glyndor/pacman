@@ -174,6 +174,7 @@ jobs:
         ./tests/admit/package-reader.test.sh
         ./tests/admit/served.test.sh
         ./tests/admit/verify-sig.test.sh
+        ./tests/assemble/stage-packages.test.sh
         ./tests/assemble/run-in-arch.test.sh
         ./tests/ci/docs/documented-test-command.test.sh
         ./tests/ci/policy/rules/cancel-policy.test.sh
@@ -204,7 +205,16 @@ jobs:
         ./tests/ci/suites/shell-ci-scope.test.sh
         ./tests/ci/suites/step-script.test.sh
         ./tests/keyring/archive-key.test.sh
+        ./tests/keyring/build-keyring.test.sh
+        ./tests/keyring/check-keyring.test.sh
+        ./tests/keyring/make-keyring.test.sh
         ./tests/keyring/release-keys.test.sh
+        ./tests/metadata/dbtool.test.sh
+        ./tests/metadata/mkdb.test.sh
+        ./tests/metadata/read-served.test.sh
+        ./tests/pages/build-index-page.test.sh
+        ./tests/pages/build-installers.test.sh
+        ./tests/pages/install-template.test.sh
         ./tests/quality/coverage/check-suites-wired.test.sh
         ./tests/quality/coverage/check-test-coverage.test.sh
         ./tests/quality/hygiene/check-commit-identity.test.sh
@@ -228,6 +238,7 @@ jobs:
         ./tests/quality/scope/suite-scope-files.test.sh
         ./tests/quality/scope/suite-scope-map.test.sh
         ./tests/quality/structure/folder-limit.test.sh
+        ./tests/sign/sign-tree.test.sh
       apt-packages: shellcheck python3-yaml python3-cryptography zstd
 
   gate:

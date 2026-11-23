@@ -34,6 +34,26 @@ class Refused(Exception):
 	"""The package is not admitted."""
 
 
+MAX_EXTENSION_BYTES = 1 << 20
+
+
+class BoundedInfo(tarfile.TarInfo):
+	"""A header whose extension (pax, GNU long name) is read only when it is small: tarfile reads that payload whole."""
+
+	def _proc_pax(self, archive):
+		if self.size > MAX_EXTENSION_BYTES:
+			raise Refused(f"the package has an extended header of {self.size} bytes, over {MAX_EXTENSION_BYTES}")
+		return super()._proc_pax(archive)
+
+	def _proc_gnulong(self, archive):
+		if self.size > MAX_EXTENSION_BYTES:
+			raise Refused(f"the package has a long name header of {self.size} bytes, over {MAX_EXTENSION_BYTES}")
+		return super()._proc_gnulong(archive)
+
+	def _proc_sparse(self, archive):
+		raise Refused("the package has a sparse member")
+
+
 class ConfigError(Exception):
 	"""The reader of the host cannot run."""
 
@@ -121,7 +141,7 @@ def read_with_tarfile(path):
 	info, members, drained, normal_seen, end = None, [], False, False, 0
 	try:
 		stream = Capped(proc.stdout, MAX_UNPACKED_BYTES)
-		with tarfile.open(fileobj=stream, mode="r|") as archive:
+		with tarfile.open(fileobj=stream, mode="r|", tarinfo=BoundedInfo) as archive:
 			for member in archive:
 				if len(members) >= MAX_ENTRIES:
 					raise Refused(f"the package has more than {MAX_ENTRIES} entries")
