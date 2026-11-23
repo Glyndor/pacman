@@ -1,0 +1,29 @@
+# A split package like Podman's, built by the real makepkg in the admission tests: two members of one base,
+# the second depending on the first at the exact version, with the relations the products file allows.
+pkgbase=podman
+pkgname=(podman podman-docker)
+pkgver=1.2.3
+pkgrel=1
+pkgdesc="A package built by a test"
+arch=(x86_64)
+url="https://glyndor.net"
+license=(MIT)
+options=(!strip !debug)
+
+package_podman() {
+	provides=(netavark container-network-stack=2)
+	conflicts=(netavark)
+	replaces=(netavark)
+	install -d "$pkgdir/usr/bin"
+	printf '#!/bin/sh\necho podman\n' > "$pkgdir/usr/bin/podman"
+	chmod 755 "$pkgdir/usr/bin/podman"
+}
+
+package_podman-docker() {
+	arch=(any)
+	depends=("podman=$pkgver-$pkgrel")
+	provides=(docker)
+	conflicts=(docker)
+	install -d "$pkgdir/usr/bin"
+	ln -s podman "$pkgdir/usr/bin/docker"
+}

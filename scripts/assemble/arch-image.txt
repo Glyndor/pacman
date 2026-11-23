@@ -1,0 +1,3 @@
+# The Arch Linux image the database is built in, by digest, one line. Read by run-in-arch.sh.
+# Dependabot moves it (docker ecosystem); a new image arrives as a commit and not overnight.
+docker.io/library/archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899

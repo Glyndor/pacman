@@ -1,0 +1,13 @@
+# The workflow of each product repository that builds and attests its release packages, one per line:
+#
+#   repository <TAB> workflow file under .github/workflows/
+#
+# admit-product.sh passes it to `gh attestation verify --signer-workflow`, so an attestation made by any
+# other workflow of the repository (a test run, a branch build) does not pass. Every repository of
+# products.txt has a line here, and a missing line stops the admission.
+podman	release.yml
+podup	release.yml
+epistle	release.yml
+helmly-agent	release.yml
+helmly	release-dashboard.yml
+epistle-panel	release.yml
