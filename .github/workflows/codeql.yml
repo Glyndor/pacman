@@ -1,0 +1,65 @@
+name: CodeQL
+
+# Every pull request into main is analysed before it merges, and main again after the merge, so an alert shows up
+# where the change enters. The weekly run catches a query added to the suite since. The analysis installs nothing and
+# holds no secret; `security-events: write` is all it adds to a read-only token.
+#
+# This repository has no `develop`, so there is no analysis of one. It is not a required check yet, so it carries no
+# `merge_group` trigger.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze-actions:
+    name: Analyze (actions)
+    # Fixed on GitHub's runners: this job holds `security-events: write`.
+    runs-on: ubuntu-latest
+    # No run has been measured yet; ten minutes is a ceiling for the workflows of this repository.
+    # Lower it to the slowest green run plus a margin once there are some.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: actions
+          build-mode: none
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: "/language:actions"
+
+  analyze-python:
+    name: Analyze (python)
+    runs-on: ubuntu-latest
+    # No run has been measured yet; ten minutes is a ceiling for the three Python modules of this repository.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: python
+          build-mode: none
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: "/language:python"
