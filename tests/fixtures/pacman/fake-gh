@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# A stand-in for the part of `gh` the admission uses, serving releases from a folder:
+#
+#   $FAKE_RELEASES/<repo>/LATEST            the tag `gh release view` reports as latest
+#   $FAKE_RELEASES/<repo>/<tag>/<asset>     the assets of that release
+#
+# Calls it understands: release view [<tag>] --repo Glyndor/<repo> --json tagName|assets [--jq .tagName],
+# release download <tag> --repo Glyndor/<repo> --pattern <glob> --dir <dir> [--clobber], and attestation
+# verify <file> --repo Glyndor/<repo> --source-ref <ref> --source-digest <sha> --signer-workflow <path> --deny-self-hosted-runners (all five
+# are required), and api repos/Glyndor/<repo>/commits/refs/tags/<tag> --jq .sha. FAKE_DIGEST=1 adds the sha256
+# GitHub lists. FAKE_NO_ATTEST names the files (one per line) whose attestation fails. FAKE_ATTEST_TAG is the tag
+# the attestations were made for (default: whatever is asked), FAKE_ATTEST_DIGEST the commit. Every call is appended to $FAKE_LOG when it is set.
+set -euo pipefail
+export LC_ALL=C
+[ -z "${FAKE_LOG:-}" ] || printf 'gh %s\n' "$*" >> "$FAKE_LOG"
+group="${1:-}"
+action="${2:-}"
+shift 2 || true
+repo=""
+tag=""
+json=""
+pattern=""
+dir=""
+file=""
+jq_filter=""
+source_ref=""
+source_digest=""
+deny_self_hosted=0
+signer_workflow=""
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--repo) repo="${2#Glyndor/}"; shift 2 ;;
+		--json) json="$2"; shift 2 ;;
+		--jq) jq_filter="$2"; shift 2 ;;
+		--pattern) pattern="$2"; shift 2 ;;
+		--dir) dir="$2"; shift 2 ;;
+		--clobber) shift ;;
+		--source-ref) source_ref="$2"; shift 2 ;;
+		--source-digest) source_digest="$2"; shift 2 ;;
+		--deny-self-hosted-runners) deny_self_hosted=1; shift ;;
+		--signer-workflow) signer_workflow="$2"; shift 2 ;;
+		-*) echo "fake-gh: unknown option $1" >&2; exit 64 ;;
+		*)
+			if [ "$group" = attestation ]; then file="$1"; elif [ "$group" = api ]; then file="$1"; else tag="$1"; fi
+			shift
+			;;
+	esac
+done
+root="${FAKE_RELEASES:?FAKE_RELEASES is not set}"
+case "$group $action" in
+	"release view")
+		[ -d "$root/$repo" ] || { echo "fake-gh: no repository $repo" >&2; exit 1; }
+		[ -n "$tag" ] || tag="$(cat "$root/$repo/LATEST")"
+		[ -d "$root/$repo/$tag" ] || { echo "fake-gh: release not found" >&2; exit 1; }
+		case "$json" in
+			tagName)
+				if [ "$jq_filter" = .tagName ]; then printf '%s\n' "$tag"; else printf '{"tagName":"%s"}\n' "$tag"; fi
+				;;
+			assets)
+				python3 -I - "$root/$repo/$tag" "${FAKE_DIGEST:-0}" <<'PY'
+import hashlib, json, os, sys
+folder, digest = sys.argv[1], sys.argv[2] == "1"
+assets = []
+for name in sorted(os.listdir(folder)):
+	path = os.path.join(folder, name)
+	item = {"name": name, "size": os.path.getsize(path)}
+	if digest:
+		item["digest"] = "sha256:" + hashlib.sha256(open(path, "rb").read()).hexdigest()
+	assets.append(item)
+print(json.dumps({"assets": assets}))
+PY
+				;;
+			*) echo "fake-gh: unsupported --json $json" >&2; exit 64 ;;
+		esac
+		;;
+	"release download")
+		folder="$root/$repo/$tag"
+		[ -d "$folder" ] || { echo "fake-gh: release not found" >&2; exit 1; }
+		mkdir -p "$dir"
+		found=0
+		for path in "$folder"/*; do
+			[ -e "$path" ] || [ -L "$path" ] || continue
+			# shellcheck disable=SC2053 # the pattern is a glob on purpose, as in gh
+			if [[ "${path##*/}" == $pattern ]]; then
+				cp -P "$path" "$dir/"
+				found=$((found + 1))
+			fi
+		done
+		[ "$found" -gt 0 ] || { echo "fake-gh: no assets match $pattern" >&2; exit 1; }
+		;;
+	"attestation verify")
+		if [ -z "$source_ref" ] || [ -z "$source_digest" ] || [ -z "$signer_workflow" ] || [ "$deny_self_hosted" -ne 1 ]; then
+			echo "fake-gh: the attestation is not tied to a tag, a commit and hosted runners" >&2
+			exit 1
+		fi
+		if [ -n "${FAKE_ATTEST_TAG:-}" ] && [ "$source_ref" != "refs/tags/$FAKE_ATTEST_TAG" ]; then
+			echo "fake-gh: the attestation is for refs/tags/$FAKE_ATTEST_TAG, not $source_ref" >&2
+			exit 1
+		fi
+		if [ -n "${FAKE_ATTEST_WORKFLOW:-}" ] && [ "$signer_workflow" != "$FAKE_ATTEST_WORKFLOW" ]; then
+			echo "fake-gh: the attestation was made by $FAKE_ATTEST_WORKFLOW, not $signer_workflow" >&2
+			exit 1
+		fi
+		if [ -n "${FAKE_ATTEST_DIGEST:-}" ] && [ "$source_digest" != "$FAKE_ATTEST_DIGEST" ]; then
+			echo "fake-gh: the attestation is for another commit" >&2
+			exit 1
+		fi
+		if [ -n "${FAKE_NO_ATTEST:-}" ] && printf '%s\n' "$FAKE_NO_ATTEST" | grep -qxF -- "${file##*/}"; then
+			echo "fake-gh: no attestation for ${file##*/}" >&2
+			exit 1
+		fi
+		[ -f "$file" ] || { echo "fake-gh: $file is not a file" >&2; exit 1; }
+		;;
+	"api "*)
+		# gh api <path>: the group is api and the action is the path
+		case "$action" in
+			repos/Glyndor/*/commits/refs/tags/*)
+				r="${action#repos/Glyndor/}"
+				r="${r%%/*}"
+				t="${action##*/commits/refs/tags/}"
+				if [ -n "${FAKE_COMMIT:-}" ]; then printf '%s\n' "$FAKE_COMMIT"; else printf '%s' "$r/$t" | sha1sum | cut -d' ' -f1; fi
+				;;
+			*) echo "fake-gh: unsupported api path $action" >&2; exit 64 ;;
+		esac
+		;;
+	*) echo "fake-gh: unsupported call: $group $action" >&2; exit 64 ;;
+esac

@@ -165,6 +165,16 @@ jobs:
       # every file is an input of the suite's verdict.
       test-command: >-
         ./tests/ci/suites/check-suite-completeness.test.sh
+        ./tests/admit/admit-all.test.sh
+        ./tests/admit/admit-check.test.sh
+        ./tests/admit/admit-makepkg.test.sh
+        ./tests/admit/admit-product.test.sh
+        ./tests/admit/admit.test.sh
+        ./tests/admit/list-package.test.sh
+        ./tests/admit/package-reader.test.sh
+        ./tests/admit/served.test.sh
+        ./tests/admit/verify-sig.test.sh
+        ./tests/assemble/run-in-arch.test.sh
         ./tests/ci/docs/documented-test-command.test.sh
         ./tests/ci/policy/rules/cancel-policy.test.sh
         ./tests/ci/policy/rules/jobs-are-bounded.test.sh
@@ -193,6 +203,7 @@ jobs:
         ./tests/ci/suites/shell-ci-scope.test.sh
         ./tests/ci/suites/step-script.test.sh
         ./tests/keyring/archive-key.test.sh
+        ./tests/keyring/release-keys.test.sh
         ./tests/quality/coverage/check-suites-wired.test.sh
         ./tests/quality/coverage/check-test-coverage.test.sh
         ./tests/quality/hygiene/check-commit-identity.test.sh
@@ -216,7 +227,7 @@ jobs:
         ./tests/quality/scope/suite-scope-files.test.sh
         ./tests/quality/scope/suite-scope-map.test.sh
         ./tests/quality/structure/folder-limit.test.sh
-      apt-packages: shellcheck python3-yaml
+      apt-packages: shellcheck python3-yaml python3-cryptography zstd
 
   gate:
     name: gate

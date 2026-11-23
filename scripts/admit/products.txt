@@ -1,0 +1,25 @@
+# The products this channel admits, one package per line, four fields separated by a TAB:
+#
+#   repository <TAB> package <TAB> architectures <TAB> relations
+#
+# repository     the Glyndor repository whose latest release carries the package.
+# package        the pacman package name. The file is <package>-<version>-1-<arch>.pkg.tar.zst.
+# architectures  x86_64, any, or x86_64|any when either is acceptable (exactly one is admitted).
+#                Arch Linux has no official aarch64 port, so there is no other value.
+# relations      the names, besides its own, that the package may list in provides, conflicts
+#                and replaces of its .PKGINFO, comma separated; - for none. A package that can
+#                replace something it does not name here could remove any package of a host.
+#
+# A repository that has no package of this file in its latest release is skipped with a notice
+# while none of its packages is served; once one is served, its absence stops the publication.
+# That is how helmly and epistle-panel are ready before they publish: the day their release
+# carries the packages (contrato-productos.md) they are served, with no change here.
+#
+# What a product has to attach to its release is docs/product-contract.md.
+podman	podman	x86_64	netavark,aardvark-dns,containers-common,podman-remote,container-network-stack
+podman	podman-docker	any	docker
+podup	podup	x86_64	-
+epistle	epistle	x86_64	-
+helmly-agent	helmly-agent	x86_64	-
+helmly	helmly	x86_64|any	-
+epistle-panel	epistle-panel	x86_64|any	-
