@@ -1,38 +1,36 @@
-# Project name
+# pacman
 
-> One-line description of what this project does and why it exists.
+[![CI](https://github.com/Glyndor/pacman/actions/workflows/tests.yml/badge.svg)](https://github.com/Glyndor/pacman/actions/workflows/tests.yml)
 
-<!-- Badges: GitHub-native only (workflow status, release). No shields.io. -->
-[![CI](https://github.com/Glyndor/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/Glyndor/REPO/actions/workflows/ci.yml)
+The pacman package repository for Glyndor's products, to be served at
+`pacman.glyndor.net`.
 
-## Overview
+## Status
 
-<!-- Screenshot or architecture diagram here (Mermaid preferred for architecture/flows). -->
+This channel does not publish anything yet. There is no package to install and no
+repository to add, so this page has no install commands. I will document the
+installation here when the channel starts to publish.
 
-## Features
+What the repository holds today is its CI and the public key it will be signed with.
 
-- Feature one
-- Feature two
-- Feature three
+## Signing key
 
-## Quick start
+The packages and the repository metadata will be signed with an OpenPGP Ed25519 key
+that belongs to this channel alone. Its public half is `keyring/glyndor-pacman-key.asc`, and its
+fingerprint is:
 
-```bash
-# Install
-curl -fsSL https://github.com/Glyndor/REPO/releases/latest/download/install.sh | sh
-
-# Usage
-<binary> --help
+```text
+0EE5 C891 235B E1CA D2E0 ABA4 77E4 16B2 4362 E256
 ```
 
-## Documentation
-
-Full documentation lives in [`docs/`](docs/).
+Check a key you are handed against this fingerprint before you trust it. The
+repository tests fail if the key in `keyring/` is not the one written here.
 
 ## Contributing
 
-See the [organization contributing guide](https://github.com/Glyndor/.github/blob/main/CONTRIBUTING.md). Pull requests are invitation-only; issues are open to everyone.
+The guide is in [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests are invitation-only;
+issues are open to everyone.
 
 ## License
 
-[LICENSE](LICENSE)
+[MIT](LICENSE)
