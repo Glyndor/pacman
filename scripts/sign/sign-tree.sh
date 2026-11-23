@@ -62,6 +62,11 @@ if [ -n "$(find "$tree" -mindepth 1 ! -type d ! -type f)" ] || [ -n "$(find "$tr
 	echo "::error::the tree holds something that is not a regular file with one link" >&2
 	exit 1
 fi
+# What the key signs was not opened to anybody else on the way: no file or folder of the tree may be writable by the group or by others.
+if [ -n "$(find "$tree" -perm /022 ! -type l)" ]; then
+	echo "::error::the tree holds a file or a folder that the group or others can write; it is not signed" >&2
+	exit 1
+fi
 # The database is written HERE, from the manifest of the admission and the .PKGINFO it read, never taken from the step that
 # ran other people's code. The packages must be exactly the admitted ones (size and hash) for it to be written at all.
 "${unkey[@]}" python3 -I "$HERE/scripts/metadata/mkdb.py" --manifest "$manifest" --pkginfo "$pkginfo" --packages "$dir" --out "$dir/glyndor.db.tar.zst"

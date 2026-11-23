@@ -46,7 +46,10 @@ It reads the file from the bytes the release key verified:
 | `arch` | exactly the `<arch>` of the file name, and one the products file declares for that package |
 | `packager` | exactly `Glyndor <noreply@glyndor.net>`; this is the vendor field of pacman |
 | `pkgbase` | absent, equal to `pkgname`, or the name of another package of the same product (`podman` for both members of the split package) |
-| `provides`, `conflict`, `replaces` | absent, or the package itself, or a name its line of the products file lists; Podman lists the names of its own contract. The keys are spelled as `.PKGINFO` spells them (`conflict` in the singular) |
+| `provides` | absent, or the package itself (with no version or with its own `<version>-1`), or a form its line of the products file lists letter for letter (`netavark=2.1.0`), or a listed name with no version or with the `<version>-1` of this very package; any other version of a name is refused (`docker=99.0`) |
+| `conflict`, `replaces` | absent, or the package itself, or a form its line of the products file lists letter for letter: a name, or a name with the one constraint listed (`netavark`, `netavark<1.14`); any other constraint is refused. The keys are spelled as `.PKGINFO` spells them (`conflict` in the singular) |
+| `group` | absent, or a name its line of the products file lists |
+| `backup` | files of the package itself: a path with no leading `/` and no `..`, in a place the package may install |
 | `depend` | free, except that a dependency on another package of the same product is exactly `<name>=<pkgver>` of the same release (`podman-docker` depends on `podman=6.2.0+r12-1`); a dependency of another product on `podman` says `podman>=6.2.0` |
 
 `.PKGINFO` is read strictly: every line is `key = value` or a `#` comment and the file ends with a line feed; no control
@@ -58,6 +61,26 @@ the bytes of `.PKGINFO`: once by Python and once by `bsdtar`, the reader pacman 
 `scripts/assemble/arch-image.txt`. Only regular files, folders, symbolic links and hard links are admitted; a member
 that is not a regular file and has a size, a global pax header, a sparse or contiguous member, or a member of any other
 type refuses the package. Nothing may follow the end of the archive but zero blocks, the end mark among them.
+
+## What a package may install
+
+By default nothing: `scripts/admit/package-paths.txt` lists, for each package, the places it may install, and a member
+that no pattern of its line names refuses the whole release (the patterns are in the file; `*` is any characters inside
+a component, a trailing `/` is a folder and what is under it). Never allowed, whatever the file says, and a line that
+names one makes the file refuse to load: `etc/pacman.conf`, `etc/pacman.d`, `usr/share/pacman` (the keyrings),
+`usr/share/libalpm` (the hooks), `etc/sudoers*`, the users and passwords, the login and the loader, cron, udev rules,
+`etc/systemd`, `etc/ssh`. Units, sysusers and tmpfiles are allowed only under the name of the package. A symbolic or hard
+link may point only at a place its package may install (or at one the line marks with `>` for a file that the other
+package of the same release installs), with the target resolved, so `..` and an absolute target that lead anywhere else are
+refused; the links are read strictly (no `..` after a name, no `.` or `..` in an absolute target, no member inside a link of the
+same package, no name twice, a chain of links followed to its end). No member is setuid or setgid, and no member carries an
+extended attribute, an ACL, a file capability or a security label: the pax headers of every member are `path`, `linkpath`,
+`size`, `mtime`, `atime`, `ctime`, `uname` and `gname` and nothing else, and the `bsdtar` of the pinned image is asked to write
+the archive out again to find the ones a listing does not show. `.MTREE`, when the package has one, is exactly one complete gzip
+member, with no continued lines and no command but `/set` and `/unset`, and has to list exactly the members of the archive: no path
+more, none less, none twice, none outside the tree, and the same paths that `bsdtar` reads in it. A product that needs another place asks
+for it in a reviewed change to that file; the lines there today are what the channel expects of each package, and they have
+not yet been measured against a real release of each product.
 
 Also required: one `.PKGINFO` among the leading dot entries, before the first ordinary entry, a regular file of at most 64 KiB; no member with an absolute name, a `..`
 component or a device node; no hard link out of the tree. `.INSTALL` scripts are allowed and run as root on
@@ -77,6 +100,11 @@ refused, and so is the same version with different bytes. A product that was ser
 no longer carries its packages stops the publication instead of disappearing from the repository.
 
 ## The second signature
+
+**Read this before attaching a `.mldsa65.sig`.** While no ML-DSA key is configured (`keyring/glyndor-release-mldsa65.b64`
+holds only comments), a release that carries a `.mldsa65.sig` is refused whole: the channel fails closed and cannot yet check
+it, so a product must not attach one until the key exists. And while the key is configured, `keyring/pq-required-products`
+cannot be empty: the channel stops with a configuration error instead of accepting a second signature that protects nothing.
 
 `<asset>.mldsa65.sig` follows the six cases of the post-quantum design. Absent and not required: accepted.
 Absent and required: refused. Present and no ML-DSA key configured: refused. Present and invalid, of another

@@ -14,8 +14,6 @@
 # It writes the package and nothing else.
 set -euo pipefail
 export LC_ALL=C
-# What the container writes in the folder it shares is readable and removable by the user who started it.
-umask 000
 
 key="" epoch="" out=""
 while [ "$#" -gt 0 ]; do

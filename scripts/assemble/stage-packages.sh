@@ -29,6 +29,10 @@ if [ -z "$admitted" ] || [ -z "$manifest" ] || [ -z "$served" ] || [ -z "$out" ]
 	echo "::error::usage: stage-packages.sh --admitted <dir> --manifest <file> --served <file> --floor <file> --out <dir>" >&2
 	exit 2
 fi
+# The order of versions is decided by the vercmp of pacman and by nothing else. A host that has none, or one that does not
+# order 1 before 2, is a broken environment, said with its own words: it is not a package whose version goes backwards.
+command -v vercmp > /dev/null 2>&1 || { echo "::error::vercmp, the tool of pacman that orders versions, is missing from this environment" >&2; exit 2; }
+[ "$(vercmp 1 2 2> /dev/null || true)" = "-1" ] || { echo "::error::vercmp does not answer -1 to 'vercmp 1 2'; it is not the tool that decides the order of versions" >&2; exit 2; }
 [ -f "$floor" ] || { echo "::error::the floor file $floor is not a file" >&2; exit 2; }
 [ -s "$manifest" ] || { echo "::error::the manifest is empty; refusing to build an empty repository" >&2; exit 1; }
 [ ! -e "$out" ] || { echo "::error::$out already exists" >&2; exit 2; }

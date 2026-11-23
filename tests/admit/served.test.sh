@@ -92,4 +92,24 @@ raw '\n'; check "a list of only a line feed is not empty" "1" "$(rc_of run --all
 check "a list that is not there" "1" "$(rm -f "$WORK/served.tsv"; rc_of run)"
 check "a manifest that is not there" "1" "$(raw "$good\n"; rc_of python3 -I "$SERVED" --served "$WORK/served.tsv" --manifest "$WORK/none")"
 
+echo "-- a list too long to be read whole is refused, not read in part"
+candidate 1.0.0-1
+python3 -I - "$WORK/served.tsv" <<'PY'
+import sys
+line = "acme\t0.9.0-1\t" + "0" * 64 + "\tacme-0.9.0-1-x86_64.pkg.tar.zst\n"
+# one line short of the cap would be read; the list below is 16 MiB and one byte, ended with a line feed at the cut
+with open(sys.argv[1], "w") as f:
+	f.write(line)
+	f.write("x" * (16 * 1024 * 1024 - len(line) - 1) + "\n")
+	f.write("\n")
+PY
+check "a list of 16 MiB and a byte is refused" "1" "$(rc_of run)"
+check "and says that a part of it is not read" "1" "$(says 'a part of it is not read')"
+python3 -I - "$WORK/served.tsv" <<'PY'
+import sys
+with open(sys.argv[1], "w") as f:
+	f.write("acme\t0.9.0-1\t" + "0" * 64 + "\tacme-0.9.0-1-x86_64.pkg.tar.zst\n")
+PY
+check "a short list is read" "0" "$(rc_of run)"
+
 finish

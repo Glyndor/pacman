@@ -33,7 +33,7 @@ attempt() {
 	listing "$REL" > "$WORK/listing.json"
 	[ -z "${AFTER:-}" ] || ( cd "$DL" && eval "$AFTER" )
 	python3 -I "$ADMIT" check --products "$WORK/products.txt" --repo "${REPO:-acme}" --tag v1.2.3 --assets "$WORK/listing.json" \
-		--dir "$DL" --ed25519-keys "${KEYFILE:-$KEYS/release.b64}" --pq-required "$WORK/no-required" --out "$WORK/out.tsv" "$@" 2>&1
+		--dir "$DL" --ed25519-keys "${KEYFILE:-$KEYS/release.b64}" --pq-required "$WORK/no-required" --paths "${PATHSFILE:-$FIXTURES/paths-permissive.txt}" --out "$WORK/out.tsv" "$@" 2>&1
 }
 rc_of() {
 	local rc=0
@@ -75,8 +75,12 @@ echo "-- the second signature (ML-DSA-65), the cases that need no ML-DSA library
 good; head -c 3309 /dev/zero > "$REL/$P.mldsa65.sig"
 check "a second signature with no ML-DSA key configured is refused" "1" "$(rc_of attempt)"
 check "and says that it cannot be checked" "1" "$(says 'cannot be checked')"
+printf 'acme\n' > "$WORK/required-acme"
 check "a second signature of the wrong length is refused even with a key configured" "1" \
-	"$(python3 -I -c 'import base64,sys;print(base64.b64encode(bytes(1952)).decode())' > "$WORK/pq.b64"; rc_of attempt --mldsa-keys "$WORK/pq.b64")"
+	"$(python3 -I -c 'import base64,sys;print(base64.b64encode(bytes(1952)).decode())' > "$WORK/pq.b64"; rc_of attempt --mldsa-keys "$WORK/pq.b64" --pq-required "$WORK/required-acme")"
+check "a key configured and no package that requires the second signature is a configuration error (it would protect nothing)" "2" \
+	"$(rc_of attempt --mldsa-keys "$WORK/pq.b64")"
+check "and says so" "1" "$(says 'protect nothing')"
 good; printf 'acme\n' > "$WORK/required"
 check "a required second signature that is absent is refused" "1" "$(rc_of attempt --pq-required "$WORK/required")"
 check "and says that the hybrid signature is required" "1" "$(says 'hybrid release signature is required')"
@@ -118,7 +122,7 @@ good --set provides=acme=1.2.3-1; check "providing itself with a version is acce
 good --append depend=podman'>=6.2.0' --append optdepend=foo; check "free dependency fields are accepted" "0" "$(rc_of attempt)"
 good --set pkgname=acme --set 'bad line'; check "a .PKGINFO line that is not key = value is refused" "1" "$(rc_of attempt)"
 # podman is the one product whose line names relations: what it may replace, provide and conflict with
-printf 'podman\tpodman\tx86_64\tnetavark,aardvark-dns,container-network-stack,podman-remote\n' > "$WORK/products.txt"
+printf 'podman\tpodman\tx86_64\tnetavark,aardvark-dns,container-network-stack,container-network-stack=2,netavark=2.1.0,podman-remote\n' > "$WORK/products.txt"
 N=$((N + 1)); REL="$WORK/r$N/podman/v1.2.3"; DL="$WORK/r$N/dl"; REPO=podman
 add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --append replaces=netavark --append replaces=aardvark-dns --append provides=container-network-stack=2 --append conflict=aardvark-dns --append depend=containers-common
 check "podman may replace, provide and conflict with exactly the names its line lists" "0" "$(rc_of attempt)"
@@ -223,7 +227,12 @@ good --append 'optdepend=podman: to run the containers'; check "an optional depe
 good --append 'optdepend=Bad Name: x'; check "an optional dependency that is not a name is refused" "1" "$(rc_of attempt)"
 good --append 'provides=../x'; check "a provides that is a path is refused" "1" "$(rc_of attempt)"
 good --append 'makedepend=;rm'; check "a make dependency with a shell character is refused" "1" "$(rc_of attempt)"
-good --append 'backup=etc/acme.conf' --append 'license=MIT' --append 'group=glyndor'; check "backup, license and group, which makepkg writes, are accepted" "0" "$(rc_of attempt)"
+good --append 'backup=etc/acme.conf' --append 'license=MIT'; check "backup and license, which makepkg writes, are accepted" "0" "$(rc_of attempt)"
+good --append 'group=glyndor'; check "a group its line does not list is refused" "1" "$(rc_of attempt)"
+check "and says which" "1" "$(says "group 'glyndor'")"
+good --append 'backup=/etc/passwd'; check "a backup of an absolute path is refused" "1" "$(rc_of attempt)"
+good --append 'backup=../etc/passwd'; check "a backup that climbs out is refused" "1" "$(rc_of attempt)"
+good --append 'optdepend=helmly-agent: for the agent'; check "an optional dependency is only a hint and is accepted as a name" "0" "$(rc_of attempt)"
 
 echo "-- the archive"
 good --raw-member '../escape'; check "a member with .. is refused" "1" "$(rc_of attempt)"
@@ -274,7 +283,7 @@ with tarfile.open(fileobj=buffer, mode="w") as archive:
 	info.size = len(body)
 	archive.addfile(info, io.BytesIO(body))
 	for i in range(int(sys.argv[1])):
-		archive.addfile(tarfile.TarInfo(f"d/{i}"))
+		archive.addfile(tarfile.TarInfo(f"usr/d/{i}"))
 subprocess.run(["zstd", "-q", "-1", "-f", "-o", sys.argv[2]], input=buffer.getvalue(), check=True)
 PY
 }
@@ -344,5 +353,49 @@ python3 -I "$ADMIT" check --products "$WORK/products.txt" --repo acme --tag v1.2
 	--ed25519-keys "$KEYS/release.b64" --out "$WORK/pre-existing.tsv" > /dev/null 2>&1 || rc=$?
 check "a manifest that already exists is not overwritten" "2" "$rc"
 check "and is left as it was" "0" "$(stat -c%s "$WORK/pre-existing.tsv")"
+
+echo "-- relations with a version (the products file lists the exact forms; provides may carry no version or the one of the package)"
+printf 'podman\tpodman\tx86_64\tnetavark,aardvark-dns,netavark=2.1.0,container-network-stack,container-network-stack=2,podman-remote\npodman\tpodman-docker\tany\tdocker,group-docker\n' > "$WORK/products.txt"
+rel() { # <package that carries the options> <options...>: a release of both members of the split package, the options on one
+	N=$((N + 1)); REL="$WORK/r$N/podman/v1.2.3"; DL="$WORK/r$N/dl"; REPO=podman
+	local target="$1"
+	shift
+	if [ "$target" = podman ]; then
+		add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --set pkgbase=podman "$@"
+		add_pkg "$REL" "$KEYS" podman-docker 1.2.3-1 any --set pkgbase=podman --append depend=podman=1.2.3-1
+	else
+		add_pkg "$REL" "$KEYS" podman 1.2.3-1 x86_64 --set pkgbase=podman
+		add_pkg "$REL" "$KEYS" podman-docker 1.2.3-1 any --set pkgbase=podman --append depend=podman=1.2.3-1 "$@"
+	fi
+}
+rel podman --append provides=netavark=2.1.0 --append provides=container-network-stack=2 --append provides=container-network-stack --append provides=podman-remote --append provides=podman-remote=1.2.3-1
+check "a versioned provide that the products file lists letter for letter is accepted" "0" "$(rc_of attempt)"
+rel podman --append provides=netavark=2.2.0
+check "the same name with another version is refused" "1" "$(rc_of attempt)"
+check "and the refusal says what it lists" "1" "$(says "lists 'netavark=2.2.0' in provides")"
+rel podman --append provides=podman-remote=99.0
+check "a provide of a listed name at a version that is not the package's is refused" "1" "$(rc_of attempt)"
+rel podman --append replaces=netavark
+check "a replaces with a listed name and no version is accepted" "0" "$(rc_of attempt)"
+rel podman --append 'replaces=netavark<99'
+check "a replaces with a constraint the file does not list is refused" "1" "$(rc_of attempt)"
+rel podman --append 'conflict=netavark>=0'
+check "a conflict with a constraint the file does not list is refused" "1" "$(rc_of attempt)"
+rel podman --append replaces=netavark=2.1.0
+check "a replaces with a listed versioned form is accepted" "0" "$(rc_of attempt)"
+rel podman-docker --append provides=docker
+check "provides docker with no version is accepted" "0" "$(rc_of attempt)"
+rel podman-docker --append provides=docker=1.2.3-1
+check "provides docker at the version of the package itself is accepted" "0" "$(rc_of attempt)"
+rel podman-docker --append provides=docker=99.0
+check "provides docker=99.0 (a version of a name that is not ours) is refused" "1" "$(rc_of attempt)"
+rel podman-docker --append 'conflict=docker>=2'
+check "conflict docker>=2 is refused" "1" "$(rc_of attempt)"
+rel podman-docker --append replaces=docker=1.0
+check "replaces docker=1.0 is refused" "1" "$(rc_of attempt)"
+rel podman-docker --append group=group-docker
+check "a group its line lists is accepted" "0" "$(rc_of attempt)"
+REPO=acme
+printf 'acme\tacme\tx86_64\t-\n' > "$WORK/products.txt"
 
 finish

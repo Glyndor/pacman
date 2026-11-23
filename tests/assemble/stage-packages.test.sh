@@ -46,6 +46,8 @@ add lib 0.1-1 any
 manifest acme-1.2.3-1-x86_64.pkg.tar.zst lib-0.1-1-any.pkg.tar.zst
 check "the admitted packages are staged" "0" "$(rc_of build "$WORK/none.tsv")"
 T="$WORK/w/out/arch/x86_64"
+check "nothing in the staged tree is writable by the group or by others" "0" "$(find "$WORK/w/out" -perm /022 ! -type l | wc -l)"
+check "and it all belongs to the user who started the container" "0" "$(find "$WORK/w/out" ! -user "$(id -un)" | wc -l)"
 check "the tree holds the packages and nothing else: no database, not even the one repo-add would write" \
 	"acme-1.2.3-1-x86_64.pkg.tar.zst lib-0.1-1-any.pkg.tar.zst" "$(cd "$T" && echo *)"
 check "the packages are the admitted bytes" "0" "$(cmp "$T/acme-1.2.3-1-x86_64.pkg.tar.zst" "$WORK/w/admitted/r/acme-1.2.3-1-x86_64.pkg.tar.zst" > /dev/null 2>&1; echo $?)"
@@ -100,5 +102,19 @@ rm "$WORK/w/admitted/r/acme-1.0-1-x86_64.pkg.tar.zst"; add acme 1.0-1 x86_64
 check "an output folder that exists" "2" "$(mkdir -p "$WORK/w/there"; rc_of bash "$RUN" scripts/assemble/stage-packages.sh "$WORK/w" --admitted /work/admitted --manifest /work/manifest.tsv --served /work/served.tsv --out /work/there)"
 check "an option that is not known" "2" "$(rc_of bash "$RUN" scripts/assemble/stage-packages.sh "$WORK/w" --nope x)"
 check "a missing option" "2" "$(rc_of bash "$RUN" scripts/assemble/stage-packages.sh "$WORK/w" --out /work/y)"
+
+echo "-- the tool that decides is checked before anything is judged"
+mkdir -p "$WORK/nopath" "$WORK/fakepath"
+printf '#!/bin/bash\necho 0\n' > "$WORK/fakepath/vercmp"
+chmod +x "$WORK/fakepath/vercmp"
+stage_here() { # <PATH>: the script on this host, with that PATH, for the options that reach it
+	PATH="$1" /bin/bash "$HERE/scripts/assemble/stage-packages.sh" --admitted "$WORK/w/admitted" --manifest "$WORK/w/manifest.tsv" \
+		--served "$WORK/none.tsv" --floor "$WORK/w/floor.txt" --out "$WORK/w/here"
+}
+check "no vercmp at all is a configuration error, not a refusal of a version" "2" "$(rc_of stage_here "$WORK/nopath")"
+check "and the message names the tool that is missing" "1" "$(says 'vercmp, the tool of pacman that orders versions, is missing')"
+check "a vercmp that does not answer -1 to 'vercmp 1 2' is a configuration error too" "2" "$(rc_of stage_here "$WORK/fakepath")"
+check "and says what it answered wrong" "1" "$(says "does not answer -1 to 'vercmp 1 2'")"
+check "neither wrote anything" "no" "$([ -e "$WORK/w/here" ] && echo yes || echo no)"
 
 finish

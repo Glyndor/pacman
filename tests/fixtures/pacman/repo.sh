@@ -34,6 +34,8 @@ make_tree() {
 			"$(sha256sum "$file" | cut -d' ' -f1)" >> "$dest.manifest"
 	done
 	python3 -I "$FIXTURES/pkginfo.py" "$dir"/*.pkg.tar.zst > "$dest.pkginfo.json"
+	# the tree is as a runner with the usual umask leaves it: nobody but its owner can write it
+	chmod -R u+rwX,go-w "$dest"
 }
 
 # make_db <out> <package file>...: the database mkdb.py writes for those packages (a manifest and the .PKGINFO data are made on the way)

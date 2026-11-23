@@ -40,7 +40,12 @@ if [ -z "$engine" ]; then
 fi
 [ -n "$engine" ] || { echo "::error::neither docker nor podman is installed" >&2; exit 2; }
 command -v "$engine" > /dev/null || { echo "::error::the container engine $engine is not installed" >&2; exit 2; }
-exec timeout 900 "$engine" run --rm --network none --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+# The container runs as the user who started it, so what it writes in /work belongs to that user and nobody else can write it:
+# the tree that is later signed is not opened to others. Podman without root maps the user into the container with keep-id;
+# for docker, a user id and a group id are enough.
+user=(--user "$(id -u):$(id -g)")
+[ "${engine##*/}" != podman ] || user=(--userns=keep-id "${user[@]}")
+exec timeout 900 "$engine" run --rm --network none --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER "${user[@]}" \
 	--security-opt no-new-privileges --pids-limit 256 --memory 2g \
 	--volume "$HERE:/repo:ro" --volume "$(cd "$work" && pwd):/work:rw" \
 	"$image" bash "/repo/$script" "$@"

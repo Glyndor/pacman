@@ -3,7 +3,7 @@
 # Admit the pacman packages of the latest release of one product repository.
 #
 #   admit-product.sh --repo <name> --out <dir> [--products <file>] [--ed25519-keys <file>]
-#                    [--mldsa-keys <file>] [--pq-required <file>] [--signers <file>] [--python <exe>]
+#                    [--mldsa-keys <file>] [--pq-required <file>] [--signers <file>] [--paths <file>] [--python <exe>]
 #
 # The release is resolved once, to a tag, and everything after reads that tag, so a release
 # published while this runs cannot hand the packages and their signatures two versions.
@@ -11,6 +11,9 @@
 # by a pattern: a release is a listing somebody else controls. What lands in <out>/<repo>/ is
 # verified by admit.py against the release key and described in <out>/<repo>.manifest, and each
 # package must also carry a provenance attestation of its repository.
+#
+# Nothing reaches <out> until every gate has passed, the attestation included: the release is admitted in a folder of
+# its own and moved into <out> at the very end, so a refusal leaves <out> as it was.
 #
 # Exit 0 admitted, 10 the release carries no pacman package of this product, anything else refused.
 set -euo pipefail
@@ -23,6 +26,7 @@ ed_keys="$HERE/keyring/glyndor-release-ed25519.b64"
 pq_keys="$HERE/keyring/glyndor-release-mldsa65.b64"
 pq_required="$HERE/keyring/pq-required-products"
 signers="$HERE/scripts/admit/signer-workflows.txt"
+paths="$HERE/scripts/admit/package-paths.txt"
 python="python3"
 while [ "$#" -gt 0 ]; do
 	[ "$#" -ge 2 ] || { echo "::error::admit-product.sh: $1 needs a value" >&2; exit 2; }
@@ -34,6 +38,7 @@ while [ "$#" -gt 0 ]; do
 		--mldsa-keys) pq_keys="$2" ;;
 		--pq-required) pq_required="$2" ;;
 		--signers) signers="$2" ;;
+		--paths) paths="$2" ;;
 		--python) python="$2" ;;
 		*) echo "::error::admit-product.sh: unknown option $1" >&2; exit 2 ;;
 	esac
@@ -47,12 +52,15 @@ fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$out"
-dest="$out/$repo"
-if [ -e "$dest" ] || [ -e "$dest.manifest" ]; then
-	echo "::error::$dest already exists; a release is admitted into an empty place" >&2
+final="$out/$repo"
+if [ -e "$final" ] || [ -e "$final.manifest" ]; then
+	echo "::error::$final already exists; a release is admitted into an empty place" >&2
 	exit 2
 fi
+# Everything is made here and moved at the end.
+stage="$work/stage"
+mkdir -p "$stage"
+dest="$stage/$repo"
 
 tag="$(timeout 120 gh release view --repo "Glyndor/$repo" --json tagName --jq .tagName)" \
 	|| { echo "::error::could not resolve the latest release of Glyndor/$repo" >&2; exit 1; }
@@ -80,12 +88,15 @@ while IFS=$'\t' read -r _kind _package name _size; do
 	# is made of characters a glob does not treat as one. gh still reads it as a glob, so a
 	# name that is not the plain text it would match is the one thing refused again here.
 	[[ "$name" =~ ^[A-Za-z0-9@_+][A-Za-z0-9@._+-]*$ ]] || { echo "::error::refusing to download '$name'" >&2; exit 1; }
-	timeout 600 gh release download "$tag" --repo "Glyndor/$repo" --pattern "$name" --dir "$dest" --clobber \
-		|| { echo "::error::could not download $name from Glyndor/$repo $tag" >&2; exit 1; }
+	[[ "$_size" =~ ^[0-9]+$ ]] || { echo "::error::the plan gives '$_size' as the size of $name" >&2; exit 1; }
+	# The size the release announced, and a little more, is the most this download may write: a file that is bigger than it
+	# said is cut off by the limit and refused, it is not downloaded whole first.
+	( ulimit -f "$((_size / 1024 + 16))" && timeout 600 gh release download "$tag" --repo "Glyndor/$repo" --pattern "$name" --dir "$dest" --clobber ) \
+		|| { echo "::error::could not download $name from Glyndor/$repo $tag (or it is larger than the release says)" >&2; exit 1; }
 done < "$work/plan.tsv"
 
 admit check "${common[@]}" --dir "$dest" --ed25519-keys "$ed_keys" --mldsa-keys "$pq_keys" \
-	--pq-required "$pq_required" --python "$python" --out "$out/$repo.manifest"
+	--pq-required "$pq_required" --paths "$paths" --python "$python" --out "$stage/$repo.manifest"
 
 # Provenance: the package was built by a workflow of the repository it came from, FOR THIS TAG. The
 # signature says the release key signed it; this says where and from which commit it was built. An
@@ -102,6 +113,12 @@ while IFS=$'\t' read -r _repo _package _version _arch file _rest; do
 	timeout 300 gh attestation verify "$dest/$file" --repo "Glyndor/$repo" --source-ref "refs/tags/$tag" \
 		--signer-workflow "Glyndor/$repo/.github/workflows/$workflow" --source-digest "$commit" --deny-self-hosted-runners > /dev/null \
 		|| { echo "::error::$file has no provenance attestation of Glyndor/$repo for $tag at $commit" >&2; exit 1; }
-done < "$out/$repo.manifest"
-printf '%s\t%s\n' "$repo" "$tag" > "$out/$repo.tag"
+done < "$stage/$repo.manifest"
+printf '%s\t%s\n' "$repo" "$tag" > "$stage/$repo.tag"
+# Every gate has passed: only now does anything reach <out>.
+mkdir -p "$out"
+mv -- "$dest" "$final"
+for suffix in .manifest .manifest.pkginfo.json .tag; do
+	mv -- "$stage/$repo$suffix" "$out/$repo$suffix"
+done
 echo "admitted Glyndor/$repo $tag"

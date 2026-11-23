@@ -19,12 +19,13 @@ rc_of() {
 }
 says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
 pkg() { python3 -I "$FIXTURES/mkpkg.py" "$WORK/p.pkg.tar.zst" acme 1.2.3-1 x86_64 "$@"; }
-read_it() { python3 -I "$READER" "$WORK/p.pkg.tar.zst"; }
+read_it() { python3 -I "$READER" --paths "${PATHS:-$FIXTURES/paths-permissive.txt}" --package acme "$WORK/p.pkg.tar.zst"; }
 
 pkg --makepkg-layout
 check "an ordinary package is read" "0" "$(rc_of read_it)"
 check "the fields come out as JSON" "acme" "$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["pkgname"][0])' "$WORK/last.out")"
 check "no argument is a usage error" "2" "$(rc_of python3 -I "$READER")"
+check "a package with neither --paths nor --no-paths is a usage error, never read with no policy" "2" "$(rc_of python3 -I "$READER" "$WORK/p.pkg.tar.zst")"
 check "a file that is not zstd is refused before a decompressor sees it" "1" "$(printf 'not zstd' > "$WORK/p.pkg.tar.zst"; rc_of read_it)"
 pkg --global-pax;               check "a global pax header" "1" "$(rc_of read_it)"
 pkg --dir-pax-size usr/x=4096;  check "a folder with a pax size" "1" "$(rc_of read_it)"
@@ -111,7 +112,7 @@ with tarfile.open(fileobj=buffer, mode="w") as archive:
 	info.size = len(body)
 	archive.addfile(info, io.BytesIO(body))
 	for i in range(int(sys.argv[1])):
-		archive.addfile(tarfile.TarInfo(f"d/{i}"))
+		archive.addfile(tarfile.TarInfo(f"usr/d/{i}"))
 subprocess.run(["zstd", "-q", "-1", "-f", "-o", sys.argv[2]], input=buffer.getvalue(), check=True)
 PY
 }
@@ -140,5 +141,36 @@ proc.stdin.close()
 proc.wait()
 PY
 check "a package that unpacks to more than 2 GiB" "ok" "$(refused_with 'unpacks to more than')"
+
+echo "-- the folder the host reader works in is not writable by everybody"
+pkg --makepkg-layout
+check "the folder handed to the container and the one it writes in are 0755, not 0777" "755 755" "$(python3 -I - "$READER" "$WORK/p.pkg.tar.zst" <<'PY'
+import importlib.util, os, subprocess, sys
+spec = importlib.util.spec_from_file_location("package_reader", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+seen = []
+
+
+real_run = subprocess.run
+
+
+def fake_run(command, **kwargs):
+	if command[0] == "rm":
+		return real_run(command, **kwargs)
+	work = command[3]
+	seen.append(oct(os.stat(work).st_mode & 0o777)[2:])
+	seen.append(oct(os.stat(os.path.join(work, "out")).st_mode & 0o777)[2:])
+	return subprocess.CompletedProcess(command, 2, "", "no engine")
+
+
+module.subprocess.run = fake_run
+try:
+	module.read_with_bsdtar(sys.argv[2])
+except module.ConfigError:
+	pass
+print(*seen)
+PY
+)"
 
 finish

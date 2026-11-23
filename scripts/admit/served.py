@@ -21,6 +21,7 @@ class Refused(Exception):
 
 SERVED_RE = re.compile(r"^([a-z0-9@_+][a-z0-9@._+-]+)\t([0-9]+\.[0-9]+\.[0-9]+(?:\+r[0-9]+)?-1)\t([0-9a-f]{64})\t([^\t/]+)$")
 PKGVER_RE = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\+r([0-9]+))?-1$")
+MAX_SERVED_BYTES = 16 * 1024 * 1024
 
 
 def version_key(pkgver):
@@ -34,9 +35,11 @@ def read_served(path, allow_empty):
 	"""[(name, pkgver, sha256, file)] of what is served, every line exactly that and the last one ended."""
 	try:
 		with open(path, "rb") as f:
-			raw = f.read(16 * 1024 * 1024)
+			raw = f.read(MAX_SERVED_BYTES + 1)
 	except OSError as exc:
 		raise Refused(f"cannot read the list of what is served: {exc}")
+	if len(raw) > MAX_SERVED_BYTES:
+		raise Refused(f"the list of what is served is larger than {MAX_SERVED_BYTES} bytes; a part of it is not read, and a part of it is not compared")
 	if not raw:
 		if allow_empty:
 			return []

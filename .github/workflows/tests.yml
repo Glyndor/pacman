@@ -172,6 +172,7 @@ jobs:
         ./tests/admit/admit.test.sh
         ./tests/admit/list-package.test.sh
         ./tests/admit/package-reader.test.sh
+        ./tests/admit/pkgpolicy.test.sh
         ./tests/admit/served.test.sh
         ./tests/admit/verify-sig.test.sh
         ./tests/assemble/stage-packages.test.sh

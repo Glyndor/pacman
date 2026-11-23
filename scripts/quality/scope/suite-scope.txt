@@ -96,6 +96,12 @@ tests/admit/package-reader.test.sh
 	tests/admit/**
 	tests/fixtures/pacman/**
 
+tests/admit/pkgpolicy.test.sh
+	scripts/admit/**
+	scripts/assemble/**
+	tests/admit/**
+	tests/fixtures/pacman/**
+
 tests/admit/served.test.sh
 	scripts/admit/**
 	tests/admit/**

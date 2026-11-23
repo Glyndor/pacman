@@ -99,15 +99,15 @@ says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
 # shellcheck disable=SC2016 # sed programs, not shell
 # shellcheck disable=SC2016
 check "a package that replaces containers-common, which v2.2 forbids, is refused" "1" "$(rc_of mangle '$a replaces = containers-common')"
-check "and the refusal names it" "1" "$(says 'lists containers-common in replaces')"
+check "and the refusal names it" "1" "$(says "lists 'containers-common' in replaces")"
 # shellcheck disable=SC2016
 check "a package that provides containers-common is refused" "1" "$(rc_of mangle '$a provides = containers-common')"
 # shellcheck disable=SC2016
 check "a hostile 'conflict = openssl' added by hand is refused" "1" "$(rc_of mangle '$a conflict = openssl')"
-check "and the refusal names the conflict" "1" "$(says 'lists openssl in conflict')"
+check "and the refusal names the conflict" "1" "$(says "lists 'openssl' in conflict")"
 # shellcheck disable=SC2016
 check "a hostile 'replaces = glibc' is refused" "1" "$(rc_of mangle '$a replaces = glibc')"
-check "and the refusal names what it replaces" "1" "$(says 'lists glibc in replaces')"
+check "and the refusal names what it replaces" "1" "$(says "lists 'glibc' in replaces")"
 check "a dependency on podman at another version is refused" "1" "$(rc_of mangle 's/^depend = podman=1.2.3-1$/depend = podman>=1/')"
 check "and the refusal asks for the exact version" "1" "$(says 'exactly')"
 check "a vendor that is not Glyndor is refused" "1" "$(rc_of mangle 's/^packager = .*/packager = Somebody <x@example.org>/')"

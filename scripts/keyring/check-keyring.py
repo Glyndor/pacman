@@ -151,7 +151,7 @@ def main():
 		with open(args.key, "rb") as f:
 			key_bytes = f.read()
 		fingerprint = fingerprint_of(key_bytes)
-		proc = subprocess.run(["python3", "-I", READER, args.package], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+		proc = subprocess.run(["python3", "-I", READER, "--no-paths", args.package], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
 		if proc.returncode != 0:
 			raise Refused("the readers of the admission refused the package: " + proc.stderr.decode("utf-8", "replace").strip())
 		info = json.loads(proc.stdout)

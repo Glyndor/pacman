@@ -49,7 +49,7 @@ check "the revocations are empty" "0" "$(zstd -dc -q "$WORK/w/one/$F" | tar -xO 
 check "the keyring file holds the key of the repository" "$FPR" "$(zstd -dc -q "$WORK/w/one/$F" | tar -xO usr/share/pacman/keyrings/glyndor.gpg | gpg --batch --with-colons --import-options show-only --import 2> /dev/null | awk -F: '$1 == "fpr" { print $10 }')"
 
 echo "-- the two readers of the admission accept it"
-check "package-reader.py reads it" "0" "$(rc_of python3 -I "$HERE/scripts/admit/package-reader.py" "$WORK/w/one/$F")"
+check "package-reader.py reads it" "0" "$(rc_of python3 -I "$HERE/scripts/admit/package-reader.py" --no-paths "$WORK/w/one/$F")"
 check "and the packager is the one the channel's own packages carry" "1" "$(grep -c 'noreply@glyndor.net' "$WORK/last.out")"
 
 echo "-- what is refused"

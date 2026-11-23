@@ -1,0 +1,11 @@
+# The paths of the packages the tests build: everything under usr and etc, so that the suites that test a parser are not
+# stopped by the policy. pkgpolicy.test.sh and the path cases of package-reader.test.sh use the real file or their own.
+acme	usr/ etc/
+lib	usr/ etc/
+later	usr/ etc/
+later-extra	usr/ etc/
+third	usr/ etc/
+podman	usr/ etc/
+podman-docker	usr/ etc/
+both	usr/ etc/
+alpha	usr/ etc/
