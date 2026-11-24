@@ -86,6 +86,10 @@ releases
 { line acme 0.9.0-1; line third 0.9.0-1; line gone 1.0.0-1; } > "$WORK/served-gone"
 check "a served package nobody declares any more does not stop the run" "0" "$(rc_of admit "$WORK/served-gone")"
 check "and the run says it leaves" "1" "$(says 'gone is served and no longer declared')"
+{ line acme 0.9.0-1; line third 0.9.0-1; line glyndor-keyring 1.0.1700000000-1; } > "$WORK/served-keyring"
+check "the package of the key, which the channel adds and no product declares, is served with the others" "0" "$(rc_of admit "$WORK/served-keyring")"
+check "and the run does not say that it leaves the repository" "0" "$(says 'glyndor-keyring is served')"
+check "while one that is really gone still is said" "1" "$({ line acme 0.9.0-1; line third 0.9.0-1; line glyndor-keyring 1.0.1700000000-1; line gone 1.0.0-1; } > "$WORK/served-both"; rc_of admit "$WORK/served-both" > /dev/null; says 'gone is served and no longer declared')"
 
 echo "-- a version never goes backwards"
 releases
