@@ -73,6 +73,9 @@ declared="$(grep -v -e '^#' -e '^$' "$products")" || { echo "::error::cannot rea
 # the reviewed list of what the repository carries, so removing a line is how a package retires. Said aloud.
 while IFS=$'\t' read -r served_name _rest; do
 	[ -n "$served_name" ] || continue
+	# The package that carries the key is added by the channel after the admission, never declared by a product: it is served
+	# every time and it is not leaving.
+	[ "$served_name" != glyndor-keyring ] || continue
 	if ! printf '%s\n' "$declared" | cut -f2 | grep -qxF -- "$served_name"; then
 		echo "::notice::$served_name is served and no longer declared in $products: it leaves the repository and is retired by the state"
 	fi
