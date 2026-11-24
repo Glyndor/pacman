@@ -1,0 +1,52 @@
+name: Verify live
+
+# On demand, and every six hours once the channel publishes, from a runner that holds nothing: the published repository holds together and installs on the Arch that
+# the packages were built on and on the Arch of today, and no package of it is older than the one Arch carries. A repository
+# that stops being republished, or whose state expires, fails here in a day at most.
+
+# There is no cron here yet, on purpose: until the channel publishes for real, a scheduled run would fail by itself every day (there
+# is nothing to admit, no bucket answers, nobody serves the repository) and leave `main` red for no reason. The cron is added
+# in the pull request of the first publication, together with its row in the table of required-check-names.test.sh and its
+# watcher.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: verify-live
+  cancel-in-progress: false
+
+jobs:
+  pinned:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-verify-live.yml
+    with:
+      image: pinned
+
+  current:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-verify-live.yml
+    with:
+      image: current
+
+  distro-newer:
+    name: distro-newer
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    # One database sync in a container and a version comparison per package.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No package of the repository is older than the one Arch carries
+        run: |
+          set -euo pipefail
+          bash scripts/metadata/read-served.sh --url https://pacman.glyndor.net --out "$RUNNER_TEMP/served"
+          chmod -R a+rX "$RUNNER_TEMP/served"
+          docker run --rm --volume "$PWD:/repo:ro" --volume "$RUNNER_TEMP/served:/served:ro" docker.io/library/archlinux:latest \
+            bash /repo/scripts/verify/distro-newer.sh --served /served/served.tsv

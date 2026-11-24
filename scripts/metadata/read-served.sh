@@ -40,18 +40,16 @@ if [ -z "$url" ] || [ -z "$out" ]; then
 	echo "::error::usage: read-served.sh --url <base> --out <dir> [--first-publication]" >&2
 	exit 2
 fi
-case "$url" in
-	https://*/* | https://*[!/]) ;;
-	http://127.0.0.1:* | http://localhost:*) ;;
-	*) echo "::error::$url is not an https address (the loopback is the only plain http one)" >&2; exit 2 ;;
-esac
+# Compared whole, never with a glob: https://x@evil.test and http://127.0.0.1:1@evil.test/ are not origins.
+[[ "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ || "$url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+/?$ ]] \
+	|| { echo "::error::$url is not an https origin (the loopback is the only plain http one)" >&2; exit 2; }
 url="${url%/}"
 [ ! -e "$out" ] || { echo "::error::$out already exists" >&2; exit 2; }
 mkdir -p "$out"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 base="$url/arch/x86_64"
-names=(glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.state glyndor.state.sig)
+names=(glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.db glyndor.db.sig glyndor.state glyndor.state.sig)
 
 # fetch <name>: the HTTP status, with the body in <dir>/<name> when it is 200
 curl_get() { curl --silent --show-error --location --proto '=https,http' --max-redirs 3 --connect-timeout 20 --max-time 180 --max-filesize 134217728 "$@"; }
@@ -96,6 +94,12 @@ for name in glyndor.db.tar.zst glyndor.state; do
 	gpgv --keyring "$work/ring.gpg" "$out/$name.sig" "$out/$name" > /dev/null 2>&1 \
 		|| { echo "::error::the signature of the served $name does not verify with the key of this repository" >&2; exit 1; }
 done
+# pacman reads glyndor.db and glyndor.db.sig, not the .tar.zst: they have to be, byte for byte, the files that were verified.
+cmp -s "$out/glyndor.db" "$out/glyndor.db.tar.zst" \
+	|| { echo "::error::the served glyndor.db is not the file glyndor.db.tar.zst, whose signature verifies; the served repository is not sound" >&2; exit 1; }
+cmp -s "$out/glyndor.db.sig" "$out/glyndor.db.tar.zst.sig" \
+	|| { echo "::error::the served glyndor.db.sig is not the signature of glyndor.db.tar.zst that verifies; the served repository is not sound" >&2; exit 1; }
+rm -f "$out/glyndor.db" "$out/glyndor.db.sig"
 python3 -I "$HERE/scripts/metadata/dbtool.py" state-check "$out/glyndor.state" --db "$out/glyndor.db.tar.zst" --now "$now"
 python3 -I "$HERE/scripts/metadata/dbtool.py" entries "$out/glyndor.db.tar.zst" > "$work/entries.tsv"
 awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" $3 }' "$work/entries.tsv" > "$out/served.tsv"

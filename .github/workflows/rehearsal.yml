@@ -1,0 +1,47 @@
+name: Rehearsal
+
+# The whole publication, twice, with a key and a release made for the run and nothing real in it: the same scripts as
+# publish.yml in the same order, a bucket that is a folder, a server on the loopback, and an Arch container that installs the
+# first version with the installer and upgrades to the second. It reads no secret, takes no permission to write and never
+# touches R2; the published tree is left as an artifact. Run it by hand before the first real publication and after a
+# change to what publishes, and weekly once the channel publishes.
+
+# There is no cron here yet, on purpose: until the channel publishes for real, a scheduled run would fail by itself every day (there
+# is nothing to admit, no bucket answers, nobody serves the repository) and leave `main` red for no reason. The cron is added
+# in the pull request of the first publication, together with its row in the table of required-check-names.test.sh and its
+# watcher.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: rehearsal
+  cancel-in-progress: false
+
+jobs:
+  rehearsal:
+    name: rehearsal
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    # Two publications with their reads back, two upgrades of an Arch container and an install; the first run will say how long.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install what the rehearsal reads with
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd python3-cryptography
+      - name: Rehearse the publication
+        run: bash tests/rehearsal/rehearse.sh --out "$RUNNER_TEMP/rehearsal" --install --image current
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rehearsal-tree
+          path: ${{ runner.temp }}/rehearsal
+          if-no-files-found: error
+          retention-days: 7

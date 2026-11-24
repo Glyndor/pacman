@@ -1,0 +1,296 @@
+name: Publish pacman repository
+
+# Builds the pacman repository from the latest release of each product, signs it and publishes it to
+# https://pacman.glyndor.net. On demand from main, and daily once the first publication is made (see the note on `on:`). It asks whether the published repository should be
+# rebuilt from what the products released, not whether code in this repository changed, so it has no push or
+# pull_request trigger.
+#
+# FOUR JOBS, each with what it needs and nothing else:
+#
+#   admit    no secret. Reads what is served, downloads each product's release, verifies it against the release
+#            key and its provenance, and keeps the verified files. It opens archives somebody else made.
+#   build    no secret. Stages the admitted packages and checks the order of versions in the pinned Arch image, no network.
+#   sign     the signing key and nothing else. Judges the tree against what was admitted, WRITES the database from the
+#            manifest and the .PKGINFO the admission read (nothing that ran over the packages is signed), then signs it.
+#   publish  the bucket and the purge credentials and nothing else. Reads every signature back before it uploads.
+#
+# The two jobs with secrets declare the environment `publish`, whose deployment policy is main only, and their first
+# step refuses any event or ref that is not a scheduled or manual run on exactly refs/heads/main. Everything runs on
+# the commit of the event.
+
+# There is no cron here yet, on purpose: until the channel publishes for real, a scheduled run would fail by itself every day (there
+# is nothing to admit, no bucket answers, nobody serves the repository) and leave `main` red for no reason. The cron is added
+# in the pull request of the first publication, together with its row in the table of required-check-names.test.sh and its
+# watcher.
+on:
+  workflow_dispatch:
+    inputs:
+      first_publication:
+        description: "The bucket is empty and this is the first publication (honored only when every object answers 404)"
+        type: boolean
+        default: false
+
+permissions: {}
+
+# Serialise publications: two runs writing to the same bucket would race to a repository that does not hold together.
+# A run in flight is never cancelled, a partial upload has to finish or be put back.
+concurrency:
+  group: publish-pacman
+  cancel-in-progress: false
+
+env:
+  ARCHIVE_URL: https://pacman.glyndor.net
+  BUCKET: glyndor-pacman
+  # The fingerprint of the key of the repository, the one in keyring/glyndor-pacman-key.asc.
+  FINGERPRINT: 0EE5C891235BE1CAD2E0ABA477E416B24362E256
+
+jobs:
+  admit:
+    name: admit
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    # Measured on the first run of the rehearsal: pulling the Arch image, six products, two readers of each package.
+    # Twenty minutes bounds a hang without cutting an honest run.
+    timeout-minutes: 20
+    steps:
+      - name: Refuse any event or ref that is not allowed
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in schedule | workflow_dispatch) ;; *) echo "::error::$EVENT is not an event this workflow runs on"; exit 1 ;; esac
+          [ "$REF" = refs/heads/main ] || { echo "::error::$REF is not refs/heads/main"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          # The version of the keyring package comes from the time of the last commit of its inputs.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install what the admission reads with
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd python3-cryptography
+          # The ML-DSA-65 half of the release signature needs a cryptography the distribution does not carry. It is
+          # installed, pinned by hash and as a wheel only, once a key is committed: until then a second signature is
+          # refused before the library is needed and this job installs nothing from PyPI.
+          if grep -qvE '^[[:space:]]*(#|$)' keyring/glyndor-release-mldsa65.b64; then
+            python3 -m venv "$RUNNER_TEMP/mldsa-venv"
+            "$RUNNER_TEMP/mldsa-venv/bin/python" -m pip install --quiet --disable-pip-version-check --require-hashes --only-binary=:all: -r scripts/admit/verify-requirements.txt
+          fi
+      - name: Read what the repository serves
+        env:
+          FIRST: ${{ github.event_name == 'workflow_dispatch' && inputs.first_publication }}
+        run: |
+          set -euo pipefail
+          args=()
+          [ "$FIRST" != true ] || args+=(--first-publication)
+          bash scripts/metadata/read-served.sh --url "$ARCHIVE_URL" --out "$RUNNER_TEMP/served" "${args[@]}"
+      - name: Admit the latest release of each product
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIRST: ${{ github.event_name == 'workflow_dispatch' && inputs.first_publication }}
+        run: |
+          set -euo pipefail
+          args=()
+          [ "$FIRST" != true ] || args+=(--first-publication)
+          py=python3
+          [ ! -x "$RUNNER_TEMP/mldsa-venv/bin/python" ] || py="$RUNNER_TEMP/mldsa-venv/bin/python"
+          bash scripts/admit/admit-all.sh --out "$RUNNER_TEMP/admitted" --served "$RUNNER_TEMP/served/served.tsv" --python "$py" "${args[@]}"
+      - name: Add the keyring package, and compare it with what is served like the rest
+        env:
+          FIRST: ${{ github.event_name == 'workflow_dispatch' && inputs.first_publication }}
+        run: |
+          set -euo pipefail
+          args=()
+          [ "$FIRST" != true ] || args+=(--allow-empty)
+          bash scripts/keyring/make-keyring.sh --admitted "$RUNNER_TEMP/admitted" --manifest "$RUNNER_TEMP/admitted/manifest.tsv" --pkginfo "$RUNNER_TEMP/admitted/pkginfo.json"
+          python3 -I scripts/admit/served.py --served "$RUNNER_TEMP/served/served.tsv" --manifest "$RUNNER_TEMP/admitted/manifest.tsv" "${args[@]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: admitted
+          path: ${{ runner.temp }}/admitted
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: served
+          path: ${{ runner.temp }}/served
+          if-no-files-found: error
+          retention-days: 3
+
+  build:
+    name: build
+    needs: admit
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    # A handful of packages checked against the order of versions in a container with no network; the pull of the image dominates.
+    timeout-minutes: 15
+    steps:
+      - name: Refuse any event or ref that is not allowed
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in schedule | workflow_dispatch) ;; *) echo "::error::$EVENT is not an event this workflow runs on"; exit 1 ;; esac
+          [ "$REF" = refs/heads/main ] || { echo "::error::$REF is not refs/heads/main"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: admitted
+          path: ${{ runner.temp }}/in/admitted
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: served
+          path: ${{ runner.temp }}/in/served
+      - name: Stage the admitted packages
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/build"
+          mkdir -p "$work"
+          cp -r "$RUNNER_TEMP/in/admitted" "$work/admitted"
+          cp "$RUNNER_TEMP/in/admitted/manifest.tsv" "$work/manifest.tsv"
+          cp "$RUNNER_TEMP/in/served/served.tsv" "$work/served.tsv"
+          cp scripts/assemble/floor.txt "$work/floor.txt"
+          chmod -R a+rwX "$work"
+          bash scripts/assemble/run-in-arch.sh scripts/assemble/stage-packages.sh "$work" --admitted /work/admitted --manifest /work/manifest.tsv \
+            --served /work/served.tsv --floor /work/floor.txt --out /work/tree
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-tree
+          path: ${{ runner.temp }}/build/tree
+          if-no-files-found: error
+          retention-days: 3
+
+  sign:
+    name: sign
+    needs: [admit, build]
+    runs-on: ubuntu-26.04
+    environment: publish
+    permissions:
+      contents: read
+    # gpg over a few files.
+    timeout-minutes: 10
+    steps:
+      - name: Refuse any event or ref that is not allowed
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in schedule | workflow_dispatch) ;; *) echo "::error::$EVENT is not an event this workflow runs on"; exit 1 ;; esac
+          [ "$REF" = refs/heads/main ] || { echo "::error::$REF is not refs/heads/main"; exit 1; }
+      - name: Refuse a re-run
+        env:
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # A re-run would write with the state of the first attempt, which the repository has moved past.
+          [ "$ATTEMPT" = 1 ] || { echo "::error::this is attempt $ATTEMPT; a publication is started again, not re-run"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # The artifacts go to folders of their own outside the checkout, by name, and nothing of them is run.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-tree
+          path: ${{ runner.temp }}/in/tree
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: admitted
+          path: ${{ runner.temp }}/in/admitted
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: served
+          path: ${{ runner.temp }}/in/served
+      - name: Sign the tree
+        env:
+          GLYNDOR_PACMAN_GPG_PRIVATE_KEY: ${{ secrets.GLYNDOR_PACMAN_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          bash scripts/sign/sign-tree.sh --tree "$RUNNER_TEMP/in/tree" --manifest "$RUNNER_TEMP/in/admitted/manifest.tsv" --pkginfo "$RUNNER_TEMP/in/admitted/pkginfo.json" \
+            --served "$RUNNER_TEMP/in/served" --public-key keyring/glyndor-pacman-key.asc --fingerprint "$FINGERPRINT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-tree
+          path: ${{ runner.temp }}/in/tree
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: publish
+    needs: [admit, sign]
+    runs-on: ubuntu-26.04
+    environment: publish
+    permissions:
+      contents: read
+    # The upload of a few packages, the purge and the read back, which has up to six attempts ten seconds apart.
+    timeout-minutes: 20
+    steps:
+      - name: Refuse any event or ref that is not allowed
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in schedule | workflow_dispatch) ;; *) echo "::error::$EVENT is not an event this workflow runs on"; exit 1 ;; esac
+          [ "$REF" = refs/heads/main ] || { echo "::error::$REF is not refs/heads/main"; exit 1; }
+      - name: Refuse a re-run
+        env:
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # A re-run would write with the state of the first attempt, which the repository has moved past.
+          [ "$ATTEMPT" = 1 ] || { echo "::error::this is attempt $ATTEMPT; a publication is started again, not re-run"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-tree
+          path: ${{ runner.temp }}/in/tree
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: served
+          path: ${{ runner.temp }}/in/served
+      - name: Build the key, the page and the installers in a folder of their own
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/in/tree"
+          pages="$RUNNER_TEMP/pages"
+          mkdir "$pages"
+          cp keyring/glyndor-pacman-key.asc "$pages/glyndor-pacman-key.asc"
+          bash scripts/pages/build-index-page.sh "$tree/arch/x86_64/glyndor.db.tar.zst" "$pages/index.html"
+          names="$(python3 -I scripts/metadata/dbtool.py entries "$tree/arch/x86_64/glyndor.db.tar.zst" | cut -f1)"
+          # shellcheck disable=SC2086
+          bash scripts/pages/build-installers.sh "$pages/install" $names
+      - name: Upload, purge and read back
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GLYNDOR_PACMAN_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GLYNDOR_PACMAN_R2_SECRET_ACCESS_KEY }}
+          # The endpoint is read by the AWS CLI from the environment, so it never reaches argv.
+          AWS_ENDPOINT_URL: ${{ secrets.GLYNDOR_PACMAN_R2_ENDPOINT }}
+          AWS_DEFAULT_REGION: auto
+          CF_TOKEN: ${{ secrets.GLYNDOR_CF_PURGE_TOKEN }}
+          CF_ZONE: ${{ secrets.GLYNDOR_CF_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          bash scripts/publish/publish.sh --tree "$RUNNER_TEMP/in/tree" --pages "$RUNNER_TEMP/pages" --previous "$RUNNER_TEMP/in/served" \
+            --public-key keyring/glyndor-pacman-key.asc --bucket "$BUCKET" --url "$ARCHIVE_URL"
+
+  verify:
+    name: verify
+    needs: publish
+    # The reusable asks for contents: read, and a caller that grants none cannot give it.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-verify-live.yml

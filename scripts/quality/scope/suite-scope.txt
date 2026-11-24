@@ -191,6 +191,62 @@ tests/sign/sign-tree.test.sh
 	tests/sign/**
 	tests/fixtures/pacman/**
 
+tests/publish/publish.test.sh
+	scripts/publish/**
+	scripts/metadata/**
+	scripts/sign/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/publish/purge-cache.test.sh
+	scripts/publish/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/publish/sync-archive.test.sh
+	scripts/publish/**
+	scripts/metadata/**
+	scripts/sign/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/publish/verify-published.test.sh
+	scripts/publish/**
+	scripts/metadata/**
+	scripts/sign/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/rehearsal/rehearse.test.sh
+	scripts/**
+	keyring/**
+	tests/rehearsal/**
+	tests/fixtures/pacman/**
+
+tests/verify/check-served.test.sh
+	scripts/verify/**
+	scripts/metadata/**
+	scripts/sign/**
+	keyring/**
+	tests/verify/**
+	tests/fixtures/pacman/**
+
+tests/verify/distro-newer.test.sh
+	scripts/verify/**
+	tests/verify/**
+	tests/fixtures/pacman/**
+
+tests/verify/install-live.test.sh
+	scripts/verify/**
+	tests/verify/**
+	tests/fixtures/pacman/**
+
+tests/verify/run-live.test.sh
+	scripts/verify/**
+	scripts/assemble/**
+	tests/verify/**
+	tests/fixtures/pacman/**
+
 tests/ci/docs/documented-test-command.test.sh
 	CONTRIBUTING.md
 	tests/ci/docs/**
@@ -277,6 +333,14 @@ tests/ci/policy/workflows/secret-jobs-if-and-uses.test.sh
 	tests/ci/policy/workflows/**
 	tests/fixtures/ci/**
 
+tests/ci/policy/workflows/publish-rerun-guard.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+
+tests/ci/policy/workflows/reusable-caller-permissions.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+
 tests/ci/policy/workflows/persist-credentials.test.sh
 	.github/workflows/**
 	tests/ci/policy/workflows/**
@@ -315,6 +379,12 @@ tests/ci/reusable/reusable-schedule-freshness.test.sh
 tests/ci/reusable/reusable-schedule-freshness/reusable-schedule-freshness-grace.test.sh
 	.github/workflows/reusable-schedule-freshness.yml
 	tests/ci/reusable/**
+
+tests/ci/reusable/reusable-verify-live.test.sh
+	.github/workflows/reusable-verify-live.yml
+	scripts/verify/**
+	tests/ci/reusable/**
+	tests/fixtures/pacman/**
 
 tests/ci/reusable/reusable-shell-ci.test.sh
 	.github/workflows/reusable-shell-ci.yml
