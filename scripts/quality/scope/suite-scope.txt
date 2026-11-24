@@ -90,7 +90,19 @@ tests/admit/list-package.test.sh
 	tests/admit/**
 	tests/fixtures/pacman/**
 
+tests/admit/package-reader-readers.test.sh
+	scripts/admit/**
+	scripts/assemble/**
+	tests/admit/**
+	tests/fixtures/pacman/**
+
 tests/admit/package-reader.test.sh
+	scripts/admit/**
+	scripts/assemble/**
+	tests/admit/**
+	tests/fixtures/pacman/**
+
+tests/admit/pkgpolicy-bounds.test.sh
 	scripts/admit/**
 	scripts/assemble/**
 	tests/admit/**

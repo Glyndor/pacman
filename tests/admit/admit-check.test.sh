@@ -408,4 +408,15 @@ check "a group its line lists is accepted" "0" "$(rc_of attempt)"
 REPO=acme
 printf 'acme\tacme\tx86_64\t-\n' > "$WORK/products.txt"
 
+
+echo "-- a key file that cannot be read, and a release with nothing in it"
+good
+check "a file of ML-DSA keys that is a folder is a configuration error, not a file with no key" "2" "$(rc_of attempt --mldsa-keys "$WORK")"
+release; printf x > "$REL/acme_1.2.3_amd64.deb"
+check "a release that carries no package of the products file is refused by check, not admitted as empty" "1" "$(rc_of attempt)"
+check "and says that it carries none" "1" "$(says 'carries no package of the products file')"
+check "and writes no manifest" "no" "$([ -e "$WORK/out.tsv" ] && echo yes || echo no)"
+release
+check "a release with no asset at all is refused too, and not admitted as an empty set" "1" "$(rc_of attempt)"
+check "and writes no manifest either" "no" "$([ -e "$WORK/out.tsv" ] && echo yes || echo no)"
 finish

@@ -112,4 +112,44 @@ with open(sys.argv[1], "w") as f:
 PY
 check "a short list is read" "0" "$(rc_of run)"
 
+
+echo "-- the size of a list is bounded to the byte, and a list over the bound is refused, however well formed"
+python3 -I - "$WORK/exact.tsv" "$WORK/over.tsv" <<'PY'
+import sys
+
+MAX = 16 * 1024 * 1024
+
+
+def row(index, width, extra=0):
+	name = "p" + str(index).zfill(width - 1)
+	return f"{name}\t1.0.0-1\t{'0' * 64}\t{name}-1.0.0-1-x86_64{'x' * extra}.pkg.tar.zst\n"
+
+
+K = len(row(0, 8)) - 2 * 8
+
+
+def build(total):
+	"""Valid rows, with different names, whose bytes add up to exactly `total`: each character of a name is two bytes of a row."""
+	n = total // (2 * 8 + K)
+	odd = (total - n * K) % 2
+	chars = (total - n * K - odd) // 2
+	base, extra = divmod(chars, n)
+	# the one byte that is left over goes into the architecture part of the file name of the first row, which is there once
+	data = "".join(row(i, base + (1 if i < extra else 0), odd if i == 0 else 0) for i in range(n))
+	assert len(data) == total, (len(data), total)
+	return data
+
+
+with open(sys.argv[1], "w") as f:
+	f.write(build(MAX))
+with open(sys.argv[2], "w") as f:
+	f.write(build(MAX + 1))
+PY
+candidate 1.0.0-1
+cp "$WORK/exact.tsv" "$WORK/served.tsv"
+check "a list of exactly 16 MiB, every row well formed, is read" "0" "$(rc_of run)"
+cp "$WORK/over.tsv" "$WORK/served.tsv"
+check "one of 16 MiB and a byte, every row well formed, is refused, not read in part" "1" "$(rc_of run)"
+check "and says that a part of it is not read" "1" "$(says 'a part of it is not read')"
+
 finish
