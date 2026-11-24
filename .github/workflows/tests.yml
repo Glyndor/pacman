@@ -14,6 +14,13 @@ name: CI
 # that is skipped that way is never what turns the pull request red; the failed
 # job is.
 #
+# DEPRECATIONS. `deprecations` runs after the suite and reads the annotations of every job of
+# the run: a warning that something is deprecated or going away fails it, because a green run
+# with one stops working on a date nobody wrote down. It is a required check of its own and
+# `gate` does not wait for it: `gate` is the job that answers for the suite, so a pull request
+# cannot change it (check-suites-wired.sh holds it to the base commit's copy), and a check
+# added after it is required by its name instead.
+#
 # THE VERDICT. `gate` always runs and fails unless every job above it succeeded.
 # A skipped job reports Success, so a job that did not run (an `if:` somebody
 # added, a dependency that failed) would otherwise read as a pass; `gate` reads
@@ -246,6 +253,7 @@ jobs:
         ./tests/quality/lint/check-test-job-not-switchable.test.sh
         ./tests/quality/lint/check-tooling-isolation.test.sh
         ./tests/quality/lint/lint-workflow-shell.test.sh
+        ./tests/quality/lint/no-deprecation-notices.test.sh
         ./tests/quality/scope/ci-job-scope-packages.test.sh
         ./tests/quality/scope/ci-job-scope-suite-needed.test.sh
         ./tests/quality/scope/ci-job-scope-suites.test.sh
@@ -260,6 +268,52 @@ jobs:
         ./tests/verify/install-live.test.sh
         ./tests/verify/run-live.test.sh
       apt-packages: shellcheck python3-yaml python3-cryptography zstd
+
+  # A run that is green with a deprecation warning stops working on a date nobody wrote
+  # down: a Node runtime an action still uses, a command GitHub retired. The warning is
+  # an annotation on a job, so this reads the annotations of every job of the run once
+  # the suites are done, and fails on one that says something is deprecated. It reads
+  # and writes nothing: `actions: read` and `checks: read` are all it holds. The script
+  # is the base commit's copy, so a pull request cannot make its own warning pass; the
+  # one that adds the script has no base copy and runs its own once.
+  deprecations:
+    name: deprecations
+    needs: [dco, empty-diff, commit-identity, secret-scan, folder-limit, line-limit, workflow-lint, shell]
+    # A required job carries `always()`: skipped behind a failed one it would report
+    # Success. The failed one turns the verdict red on its own.
+    if: always()
+    # ubuntu-latest on purpose: see commit-identity.
+    runs-on: ubuntu-latest
+    # Bound: one listing and one read per job, a few seconds each.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: No job of this run carries a deprecation warning
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          path=scripts/quality/lint/no-deprecation-notices.sh
+          if [ -f "$path" ]; then
+            echo "Running the copy of the base commit."
+            bash "$path"
+          else
+            echo "The base commit has no $path; this pull request adds it and runs its own copy once."
+            git fetch --no-tags --quiet origin "$HEAD"
+            git show "$HEAD:$path" > "$RUNNER_TEMP/no-deprecation-notices.sh"
+            bash "$RUNNER_TEMP/no-deprecation-notices.sh"
+          fi
 
   gate:
     name: gate

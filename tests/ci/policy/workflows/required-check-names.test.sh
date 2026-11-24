@@ -42,6 +42,7 @@ check() { # <description> <expected> <actual>
 # The checks of a pull request, as the ruleset names them.
 REQUIRED="commit identity
 dco / Signed-off-by present on every commit
+deprecations
 empty-diff / empty diff
 folder limit
 gate

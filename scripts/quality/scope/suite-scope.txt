@@ -552,6 +552,10 @@ tests/quality/lint/lint-workflow-shell.test.sh
 	scripts/quality/lint/lint-workflow-shell.sh
 	tests/quality/lint/**
 
+tests/quality/lint/no-deprecation-notices.test.sh
+	scripts/quality/lint/no-deprecation-notices.sh
+	tests/quality/lint/**
+
 tests/quality/scope/ci-job-scope-packages.test.sh
 	scripts/quality/scope/**
 	tests/ci/suites/check-suite-completeness.test.sh
