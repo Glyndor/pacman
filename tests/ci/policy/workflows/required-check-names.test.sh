@@ -60,6 +60,7 @@ workflow-lint / workflow-lint"
 # repository, and are `yes` now that they are. They run by hand only until the channel publishes for real: their cron is added in
 # the pull request of the first publication, which adds `schedule` to the events of the row and a watcher for each cron. Any other workflow runs on pull_request alone.
 NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)	yes
+freshness.yml	pull_request push schedule	freshness-codeql / schedule freshness|freshness-itself / schedule freshness	yes
 publish.yml	workflow_dispatch	admit|build|sign|publish|verify / served|verify / install	yes
 verify-live.yml	workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer	yes
 rehearsal.yml	workflow_dispatch	rehearsal	yes"
@@ -157,6 +158,9 @@ check "a manual trigger on codeql.yml is reported" "1" "$(offences "$d" | grep -
 d="$(cp_repo no-codeql)"
 rm "$d/.github/workflows/codeql.yml"
 check "removing codeql.yml leaves both analysis names missing" "$(printf 'missing from the workflows: Analyze (actions)\nmissing from the workflows: Analyze (python)')" "$(offences "$d")"
+d="$(cp_repo no-freshness)"
+rm "$d/.github/workflows/freshness.yml"
+check "removing freshness.yml leaves the names of its two watchers missing" "$(printf 'missing from the workflows: freshness-codeql / schedule freshness\nmissing from the workflows: freshness-itself / schedule freshness')" "$(offences "$d")"
 d="$(cp_repo one-analysis)"
 sed -i 's/^    name: Analyze (python)$/    name: Analyze (py)/' "$d/.github/workflows/codeql.yml"
 check "renaming one analysis job leaves its name missing, and the new one is not in the list" \

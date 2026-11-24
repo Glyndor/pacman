@@ -32,7 +32,9 @@ printf 'not an archive' > "$WORK/bad.pkg.tar.zst"
 check "a file that is not an archive is a failure" "1" "$(rc_of list "$WORK/bad.pkg.tar.zst")"
 python3 -I "$FIXTURES/mkpkg.py" "$WORK/nopkginfo.pkg.tar.zst" acme 1.2.3-1 x86_64 --no-pkginfo
 check "a package with no .PKGINFO is a failure, not an empty .PKGINFO" "1" "$(rc_of list "$WORK/nopkginfo.pkg.tar.zst")"
-zstd -dc -q "$WORK/p.pkg.tar.zst" | head -c 700 | zstd -q -f -o "$WORK/cut.pkg.tar.zst"
+# read whole into a file first: `head` closing the pipe early can kill zstd with SIGPIPE, and under pipefail that failed the suite now and then
+zstd -dc -q "$WORK/p.pkg.tar.zst" > "$WORK/p.tar"
+head -c 700 "$WORK/p.tar" | zstd -q -f -o "$WORK/cut.pkg.tar.zst"
 check "an archive that is cut short is a failure" "1" "$(rc_of list "$WORK/cut.pkg.tar.zst")"
 
 finish
