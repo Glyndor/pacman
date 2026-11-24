@@ -27,6 +27,10 @@ forms_with() { # <dir> <python statement on d>: a copy of the forms, changed
 	python3 -I - "$FORMS" "$1/scripts/quality/lint/switch-rule-forms.json" "$2" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+# The fixtures judge a gate that the forms do not list for adoption. Whether the forms of the repository list it
+# at this moment (the pull request that opens the way to change the gate, until the next one closes it) is not
+# what these cases are about, so the copy starts without that entry.
+d["producers_may_change"] = [e for e in d["producers_may_change"] if e != [".github/workflows/tests.yml", "gate"]]
 exec(sys.argv[3])
 json.dump(d, open(sys.argv[2], "w"))
 PY
