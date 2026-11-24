@@ -260,6 +260,22 @@ tests/ci/policy/workflows/no-write-permissions.test.sh
 tests/ci/policy/workflows/secret-jobs-are-guarded.test.sh
 	.github/workflows/**
 	tests/ci/policy/workflows/**
+	tests/fixtures/ci/**
+
+tests/ci/policy/workflows/secret-jobs-forms.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+	tests/fixtures/ci/**
+
+tests/ci/policy/workflows/secret-jobs-guard.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+	tests/fixtures/ci/**
+
+tests/ci/policy/workflows/secret-jobs-if-and-uses.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+	tests/fixtures/ci/**
 
 tests/ci/policy/workflows/persist-credentials.test.sh
 	.github/workflows/**

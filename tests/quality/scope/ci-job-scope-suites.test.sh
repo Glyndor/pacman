@@ -493,6 +493,10 @@ done
 FIXTURE_SUITES="tests/ci/policy/workflows/commit-hygiene-base-rule.test.sh
 tests/ci/policy/workflows/gate-job.test.sh
 tests/ci/policy/workflows/required-check-names.test.sh
+tests/ci/policy/workflows/secret-jobs-are-guarded.test.sh
+tests/ci/policy/workflows/secret-jobs-forms.test.sh
+tests/ci/policy/workflows/secret-jobs-guard.test.sh
+tests/ci/policy/workflows/secret-jobs-if-and-uses.test.sh
 tests/ci/policy/workflows/workflow-files.test.sh
 tests/ci/reusable/reusable-dco.test.sh
 tests/ci/reusable/reusable-dependabot-freshness.test.sh

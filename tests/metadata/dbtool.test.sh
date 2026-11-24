@@ -136,8 +136,18 @@ check "a desc that does not end with the blank line" "1" "$(raw_db "$WORK/r.zst"
 check "a NUL byte in a value" "1" "$(raw_db "$WORK/r.zst" 'blob = tar_of([("a-1.0.0-1/desc", desc("%GROUPS%\nx\0y\n\n"))])')"
 check "a carriage return in a value" "1" "$(raw_db "$WORK/r.zst" 'blob = tar_of([("a-1.0.0-1/desc", desc("%GROUPS%\nx\ry\n\n"))])')"
 check "a key with lower case letters" "1" "$(raw_db "$WORK/r.zst" 'blob = tar_of([("a-1.0.0-1/desc", desc("%groups%\nx\n\n"))])')"
-check "a global pax header" "1" "$(raw_db "$WORK/r.zst" 'import tarfile as t\nbuf = io.BytesIO()\nwith t.open(fileobj=buf, mode="w", format=t.PAX_FORMAT, pax_headers={"comment": "x"}) as a:\n\ti = t.TarInfo("a-1.0.0-1/desc"); t_ = desc(); i.size = len(t_); a.addfile(i, io.BytesIO(t_.encode()))\nblob = buf.getvalue()')"
-check "a long name header" "1" "$(raw_db "$WORK/r.zst" 'import tarfile as t\nbuf = io.BytesIO()\nwith t.open(fileobj=buf, mode="w", format=t.GNU_FORMAT) as a:\n\ti = t.TarInfo("a-1.0.0-1/" + "d" * 120); t_ = desc(); i.size = len(t_); a.addfile(i, io.BytesIO(t_.encode()))\nblob = buf.getvalue()')"
+check "a global pax header" "1" "$(raw_db "$WORK/r.zst" 'import io, tarfile as t
+buf = io.BytesIO()
+with t.open(fileobj=buf, mode="w", format=t.PAX_FORMAT, pax_headers={"comment": "x"}) as a:
+	i = t.TarInfo("a-1.0.0-1/desc"); t_ = desc(); i.size = len(t_); a.addfile(i, io.BytesIO(t_.encode()))
+blob = buf.getvalue()')"
+check "and says that it is an extended (pax) header" "1" "$(says 'extended (pax) header')"
+check "a long name header" "1" "$(raw_db "$WORK/r.zst" 'import io, tarfile as t
+buf = io.BytesIO()
+with t.open(fileobj=buf, mode="w", format=t.GNU_FORMAT) as a:
+	i = t.TarInfo("a-1.0.0-1/" + "d" * 120); t_ = desc(); i.size = len(t_); a.addfile(i, io.BytesIO(t_.encode()))
+blob = buf.getvalue()')"
+check "and says that it is a long name header" "1" "$(says 'long name header')"
 
 echo "-- what a hostile database costs"
 python3 -I - "$WORK/huge.db.tar.zst" <<'PY'
