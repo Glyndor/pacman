@@ -192,6 +192,7 @@ jobs:
         ./tests/ci/policy/workflows/pull-request-runs-are-superseded.test.sh
         ./tests/ci/policy/workflows/required-check-names.test.sh
         ./tests/ci/policy/workflows/reusable-caller-permissions.test.sh
+        ./tests/ci/policy/workflows/scheduled-workflows-are-watched.test.sh
         ./tests/ci/policy/workflows/secret-jobs-are-guarded.test.sh
         ./tests/ci/policy/workflows/secret-jobs-forms.test.sh
         ./tests/ci/policy/workflows/secret-jobs-guard.test.sh
