@@ -245,6 +245,13 @@ tests/verify/run-live.test.sh
 	scripts/verify/**
 	scripts/assemble/**
 	tests/verify/**
+
+tests/docs/readme.test.sh
+	README.md
+	keyring/**
+	scripts/pages/**
+	scripts/admit/products.txt
+	tests/docs/**
 	tests/fixtures/pacman/**
 
 tests/ci/docs/documented-test-command.test.sh
