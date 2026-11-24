@@ -149,4 +149,11 @@ check "the same name and version with another hash is refused" "1" "$({ line acm
 check "and says that bytes that change need a new version" "1" "$(says 'need a new version')"
 check "another version served with another hash is not that identity" "0" "$({ line acme 0.9.0-1; line third 0.9.0-1; } > "$WORK/served-old"; rc_of admit "$WORK/served-old")"
 
+
+echo "-- a products file that declares nothing"
+printf '# nothing is declared here\n' > "$WORK/products-empty"
+releases
+check "a products file with no product is a configuration error, not an empty publication" "2" "$(rc_of admit "$WORK/served-none" --first-publication --products "$WORK/products-empty")"
+check "and says that it declares no product" "1" "$(says 'declares no product')"
+check "and nothing is left in the output folder" "0" "$(find "$WORK/out$N" -mindepth 1 2> /dev/null | wc -l)"
 finish
