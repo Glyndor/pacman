@@ -162,6 +162,10 @@ tests/assemble/run-in-arch.test.sh
 	tests/assemble/**
 	tests/fixtures/pacman/**
 
+tests/assemble/arch-image.test.sh
+	scripts/assemble/**
+	tests/assemble/**
+
 tests/metadata/dbtool.test.sh
 	scripts/metadata/**
 	tests/metadata/**

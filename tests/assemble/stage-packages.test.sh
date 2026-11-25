@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# stage-packages.sh, in the real Arch image (the digest of arch-image.txt, with the pacman it ships, no
+# stage-packages.sh, in the real Arch image (the digest of the Dockerfile in scripts/assemble, with the pacman it ships, no
 # network): the admitted packages are staged for signing, and a package is refused when
 # vercmp says it is older than the one served or when it is the same version with other bytes. The version
 # cases that matter to the contract are run through the real vercmp: 6.2.0 < 6.2.0+r12 < 6.2.1, which is why

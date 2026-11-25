@@ -30,7 +30,7 @@ check "with every capability dropped" "1" "$(has ALL)"
 check "and no new privileges" "1" "$(has no-new-privileges)"
 check "the repository is mounted read-only" "1" "$(has "$HERE:/repo:ro")"
 check "the work folder is the only writable mount" "1" "$(has "$WORK/work:/work:rw")"
-check "the image is the one in arch-image.txt, by digest" "1" "$(grep -c -x -F -- "$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")" "$ENGINE_LOG" || true)"
+check "the image is the one of the Dockerfile, by digest" "1" "$(grep -c -x -F -- "$(bash "$HERE/scripts/assemble/arch-image.sh")" "$ENGINE_LOG" || true)"
 check "the script is run from the read-only copy" "1" "$(has /repo/scripts/admit/list-package.sh)"
 check "the arguments follow the script" "1" "$(has /work/x)"
 check "the environment of the caller does not reach the container (no --env, no --env-file)" "0" "$(grep -c -e '^--env' "$ENGINE_LOG" || true)"
@@ -51,7 +51,7 @@ check "a script that is not there is refused" "2" "$(rc_of run scripts/assemble/
 check "a work folder that is not there is refused" "2" "$(rc_of run scripts/admit/list-package.sh "$WORK/none")"
 check "no arguments at all" "2" "$(rc_of bash "$SCRIPT")"
 mkdir -p "$WORK/nobin"
-for tool in grep dirname timeout; do ln -s "$(command -v "$tool")" "$WORK/nobin/$tool"; done
+for tool in bash grep dirname timeout; do ln -s "$(command -v "$tool")" "$WORK/nobin/$tool"; done
 noengine() { PATH="$WORK/nobin" /usr/bin/env -i PATH="$WORK/nobin" /bin/bash "$SCRIPT" scripts/admit/list-package.sh "$WORK/work"; }
 check "no engine installed is refused" "2" "$(rc_of noengine)"
 check "and says that neither docker nor podman is installed" "1" "$(grep -c 'neither docker nor podman' "$WORK/last.out" || true)"

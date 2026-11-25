@@ -58,7 +58,7 @@ character (NUL, tab, carriage return, vertical tab, form feed) is in it; the key
 `depend`, `optdepend`, `makedepend`, `checkdepend` or `xdata`, and any other key refuses the package; the names in the
 relation keys are package or soname names. The archive is read twice and the two readings must agree member by member (type, name, size, link target) and on
 the bytes of `.PKGINFO`: once by Python and once by `bsdtar`, the reader pacman uses, from the Arch image of
-`scripts/assemble/arch-image.txt`. Only regular files, folders, symbolic links and hard links are admitted; a member
+`scripts/assemble/Dockerfile`. Only regular files, folders, symbolic links and hard links are admitted; a member
 that is not a regular file and has a size, a global pax header, a sparse or contiguous member, or a member of any other
 type refuses the package. Nothing may follow the end of the archive but zero blocks, the end mark among them.
 

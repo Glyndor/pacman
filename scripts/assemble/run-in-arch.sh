@@ -6,7 +6,7 @@
 #   run-in-arch.sh <script under scripts/> <work dir> <script arguments...>
 #
 # <work dir> is the only writable mount; every path the script is given is inside it (as /work/...) or in
-# the repository (as /repo/...). The image is the digest in arch-image.txt, and the engine is docker or podman.
+# the repository (as /repo/...). The image is the digest in scripts/assemble/Dockerfile (read by arch-image.sh), and the engine is docker or podman.
 set -euo pipefail
 export LC_ALL=C
 
@@ -25,9 +25,7 @@ case "$script" in
 esac
 [ -f "$HERE/$script" ] || { echo "::error::$script does not exist" >&2; exit 2; }
 [ -d "$work" ] || { echo "::error::$work is not a folder" >&2; exit 2; }
-image="$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")"
-[[ "$image" =~ ^docker\.io/library/archlinux@sha256:[0-9a-f]{64}$ ]] \
-	|| { echo "::error::scripts/assemble/arch-image.txt does not hold one image by digest" >&2; exit 2; }
+image="$(bash "$HERE/scripts/assemble/arch-image.sh")" || exit 2
 engine="${CONTAINER_ENGINE:-}"
 if [ -z "$engine" ]; then
 	for candidate in docker podman; do

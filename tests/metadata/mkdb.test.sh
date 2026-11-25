@@ -82,7 +82,7 @@ pacman --config /tmp/pacman.conf -Si beta > /work/si-beta.log 2>&1
 pacman --config /tmp/pacman.conf -Sl glyndor > /work/sl.log 2>&1
 SH
 chmod 644 "$WORK/c/run.sh"
-image="$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")"
+image="$(bash "$HERE/scripts/assemble/arch-image.sh")"
 engine=docker
 if ! { command -v docker > /dev/null && timeout 60 docker info > /dev/null 2>&1; }; then engine=podman; fi
 check "pacman of the image reads the database and repo-add writes its own" "0" "$(rc_of "$engine" run --rm --network none --volume "$WORK/c:/work:rw" "$image" bash /work/run.sh)"
