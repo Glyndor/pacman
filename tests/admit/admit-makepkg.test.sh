@@ -25,7 +25,7 @@ if [ -z "$engine" ]; then
 	done
 fi
 [ -n "$engine" ] || { echo "FAIL  neither docker nor podman answers"; exit 1; }
-image="$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")"
+image="$(bash "$HERE/scripts/assemble/arch-image.sh")"
 # shellcheck disable=SC2153 # WORK comes from lib.sh
 KEYS="$WORK/keys"
 new_key "$KEYS"

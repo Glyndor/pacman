@@ -186,6 +186,7 @@ jobs:
         ./tests/admit/verify-sig.test.sh
         ./tests/assemble/stage-packages.test.sh
         ./tests/assemble/run-in-arch.test.sh
+        ./tests/assemble/arch-image.test.sh
         ./tests/ci/docs/documented-test-command.test.sh
         ./tests/ci/policy/rules/cancel-policy.test.sh
         ./tests/ci/policy/rules/jobs-are-bounded.test.sh

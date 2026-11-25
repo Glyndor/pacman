@@ -47,7 +47,7 @@ mkdir -p "$FK/scripts/keyring" "$FK/scripts/admit" "$FK/scripts/assemble" "$FK/k
 cp "$HERE/scripts/keyring/make-keyring.sh" "$HERE/scripts/keyring/check-keyring.py" "$HERE/scripts/keyring/build-keyring.sh" "$FK/scripts/keyring/"
 cp "$HERE"/scripts/admit/package-reader.py "$HERE"/scripts/admit/pkgpolicy.py "$HERE"/scripts/admit/list-package.sh "$FK/scripts/admit/"
 cp "$HERE/scripts/assemble/run-in-arch.sh" "$FK/scripts/assemble/real-run-in-arch.sh"
-cp "$HERE/scripts/assemble/arch-image.txt" "$FK/scripts/assemble/"
+cp "$HERE/scripts/assemble/Dockerfile" "$HERE/scripts/assemble/arch-image.sh" "$FK/scripts/assemble/"
 cp "$HERE/keyring/glyndor-pacman-key.asc" "$FK/keyring/"
 cat > "$FK/scripts/assemble/run-in-arch.sh" <<'STUB'
 #!/usr/bin/env bash

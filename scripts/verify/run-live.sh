@@ -5,7 +5,7 @@
 #   run-live.sh install --image <pinned|current> --state <name> [--network host] <install-live options>
 #   run-live.sh upgrade --state <name> [--network host] <install-live options>
 #
-# `pinned` is the image of arch-image.txt, by digest; `current` is the Arch of today (docker.io/library/archlinux:latest):
+# `pinned` is the image of scripts/assemble/Dockerfile, by digest; `current` is the Arch of today (docker.io/library/archlinux:latest):
 # the packages are built on the first and installed on what Arch is now, which is the case that breaks when a library
 # moves. `install` leaves the host it made as an image called <state>, so that `upgrade` runs on the same host later.
 # --network host reaches a server on the loopback (the rehearsal); the default is the network of the engine.
@@ -44,7 +44,7 @@ net=()
 [ -z "$network" ] || net=(--network "$network")
 if [ "$mode" = install ]; then
 	case "$image" in
-		pinned) image="$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")" ;;
+		pinned) image="$(bash "$HERE/scripts/assemble/arch-image.sh")" ;;
 		current) image="docker.io/library/archlinux:latest" ;;
 		*) echo "::error::--image is pinned or current" >&2; exit 2 ;;
 	esac

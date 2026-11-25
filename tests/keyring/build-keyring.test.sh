@@ -71,7 +71,7 @@ pacman-key --list-keys 0EE5C891235BE1CAD2E0ABA477E416B24362E256 > /work/list.log
 pacman-key --finger 0EE5C891235BE1CAD2E0ABA477E416B24362E256 > /work/finger.log 2>&1
 SH
 chmod 644 "$WORK/w/install.sh"
-image="$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")"
+image="$(bash "$HERE/scripts/assemble/arch-image.sh")"
 engine=docker
 command -v docker > /dev/null && timeout 60 docker info > /dev/null 2>&1 || engine=podman
 check "pacman -U installs the package" "0" "$(rc_of "$engine" run --rm --network none --volume "$WORK/w:/work:rw" "$image" bash /work/install.sh)"

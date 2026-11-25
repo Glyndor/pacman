@@ -20,7 +20,7 @@ chmod +x "$WORK/engine"
 export ENGINE_LOG="$WORK/engine.log" CONTAINER_ENGINE="$WORK/engine"
 rc_of() { local rc=0; "$@" > "$WORK/last.out" 2>&1 || rc=$?; echo "$rc"; }
 calls() { grep -c -- "$1" "$ENGINE_LOG" || true; }
-PIN="$(grep -v -e '^#' -e '^$' "$HERE/scripts/assemble/arch-image.txt")"
+PIN="$(bash "$HERE/scripts/assemble/arch-image.sh")"
 
 : > "$ENGINE_LOG"
 check "install on the pinned image" "0" "$(rc_of bash "$SCRIPT" install --image pinned --state host1 --base https://pacman.example.org --package podup --expect 1.0.0-1)"
