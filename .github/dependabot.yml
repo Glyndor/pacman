@@ -1,12 +1,13 @@
 version: 2
 
 updates:
-  # Two ecosystems, the two this repository really has. The GitHub Actions its workflows use,
-  # every one pinned by SHA, and the Arch Linux image the packages are built and checked in,
+  # Three ecosystems, the three this repository really has. The GitHub Actions its workflows use,
+  # every one pinned by SHA; the Arch Linux image the packages are built and checked in,
   # pinned by digest in scripts/assemble/Dockerfile (nothing is built from that file: it is
-  # where Dependabot reads the image). The packages and the repository metadata are built by
-  # scripts and carry no manifest of their own, so there is no pip, npm or cargo entry to add
-  # until a file of that kind exists.
+  # where Dependabot reads the image); and the wheels that check the second, ML-DSA-65 half of
+  # a release signature, pinned by hash in scripts/admit/verify-requirements.txt. The packages and
+  # the repository metadata are built by scripts and carry no manifest of their own, so there is
+  # no npm or cargo entry to add until a file of that kind exists.
   #
   # In each, patch and minor releases arrive together in one pull request and a major one in
   # its own, so a change of major version is read on its own and never rides along with a
@@ -42,6 +43,25 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
       images-major:
+        patterns: ["*"]
+        update-types: ["major"]
+    commit-message:
+      prefix: chore
+
+  # A fix in a library that verifies signatures is not one to find out about by accident, so
+  # the file that pins it is watched like the rest. It stays hash-pinned: Dependabot rewrites
+  # the hashes with the version.
+  - package-ecosystem: "pip"
+    directory: "/scripts/admit"
+    schedule:
+      interval: "daily"
+    labels: ["type:deps", "type:security"]
+    open-pull-requests-limit: 5
+    groups:
+      verifier-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      verifier-major:
         patterns: ["*"]
         update-types: ["major"]
     commit-message:
