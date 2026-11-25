@@ -10,7 +10,11 @@
 #   * a `shell` that does not wait for a cheap check runs the suite on a pull
 #     request that is already red, which is the cost the ordering exists to avoid;
 #   * a `gate` that accepts anything but `success` reads a skipped or cancelled job
-#     as a pass.
+#     as a pass;
+#   * `deprecations` reads the annotations of every other job once they are done, so it
+#     waits for all of them, `shell` included, and carries `always()` for the same reason
+#     as `gate`. It is a required check of its own: `gate` does not wait for it, because
+#     the gate is the one job a pull request cannot change.
 #
 # The structure is read from the workflow and judged first on planted copies, so a
 # pass is shown to be a pass of a check that can fail; the shell of the `gate` step
@@ -58,21 +62,36 @@ def needs(job):
 if "gate" not in jobs:
     print("there is no job called gate")
 else:
-    others = set(jobs) - {"gate"}
+    # `deprecations` is a required check of its own and the gate does not wait for it: the gate is the job that answers
+    # for the suite and a pull request cannot change it, so a check that reads the run after it stands beside it.
+    others = set(jobs) - {"gate", "deprecations"}
     missing = sorted(others - needs("gate"))
     for job in missing:
         print(f"gate does not wait for {job}")
-    for job in sorted(needs("gate") - others):
+    for job in sorted(needs("gate") - (set(jobs) - {"gate"})):
         print(f"gate waits for {job}, which is not a job of this workflow")
     if str(jobs["gate"].get("if", "")).strip() != "always()":
         print("gate does not run when a job it waits for fails: its if: is not always()")
 if "shell" not in jobs:
     print("there is no job called shell")
 else:
-    for job in sorted(set(jobs) - {"gate", "shell"} - needs("shell")):
+    # `deprecations` reads the annotations of the others once they are done, so it comes after `shell`.
+    cheap = set(jobs) - {"gate", "shell", "deprecations"}
+    for job in sorted(cheap - needs("shell")):
         print(f"shell does not wait for {job}")
-    for job in sorted(needs("shell") - (set(jobs) - {"gate", "shell"})):
+    for job in sorted(needs("shell") - cheap):
         print(f"shell waits for {job}, which is not one of the cheap checks")
+if "deprecations" not in jobs:
+    print("there is no job called deprecations")
+else:
+    for job in sorted(set(jobs) - {"gate", "deprecations"} - needs("deprecations")):
+        print(f"deprecations does not wait for {job}")
+    if "deprecations" in needs("gate"):
+        print("gate waits for deprecations, which a pull request cannot add to the job that answers for the suite")
+    for job in sorted(needs("deprecations") - (set(jobs) - {"gate", "deprecations"})):
+        print(f"deprecations waits for {job}, which is not a job it reads")
+    if str(jobs["deprecations"].get("if", "")).strip() != "always()":
+        print("deprecations does not run when a job it waits for fails: its if: is not always()")
 # The verdict reads the results of the jobs it waits for and nothing else, in one step.
 steps = (jobs.get("gate") or {}).get("steps") or []
 if "gate" not in jobs:
@@ -110,7 +129,7 @@ check "a job gate does not wait for is reported" "gate does not wait for secret-
 
 plant added "spec['jobs']['extra'] = {'runs-on': 'ubuntu-latest', 'steps': [{'run': 'true'}]}"
 check "a new job the verdict never sees is reported" \
-	"$(printf 'gate does not wait for extra\nshell does not wait for extra')" "$(audit "$WORK/added.yml")"
+	"$(printf 'gate does not wait for extra\nshell does not wait for extra\ndeprecations does not wait for extra')" "$(audit "$WORK/added.yml")"
 
 plant ghost "spec['jobs']['gate']['needs'].append('nowhere')"
 check "a wait for a job that does not exist is reported" \
@@ -129,6 +148,24 @@ check "a suite that does not wait for a cheap check is reported" "shell does not
 
 plant no-needs "del spec['jobs']['shell']['needs']"
 check "a suite that waits for nothing is reported once per cheap check" "7" "$(audit "$WORK/no-needs.yml" | grep -c '^shell does not wait')"
+
+plant dep-eager "spec['jobs']['deprecations']['needs'].remove('shell')"
+check "a deprecation read that does not wait for the suite is reported" "deprecations does not wait for shell" "$(audit "$WORK/dep-eager.yml")"
+
+plant dep-no-always "del spec['jobs']['deprecations']['if']"
+check "a deprecation read without always() is reported" \
+	"deprecations does not run when a job it waits for fails: its if: is not always()" "$(audit "$WORK/dep-no-always.yml")"
+
+plant dep-gone "del spec['jobs']['deprecations']"
+check "a workflow with no deprecation read is reported" "there is no job called deprecations" "$(audit "$WORK/dep-gone.yml")"
+
+plant dep-ghost "spec['jobs']['deprecations']['needs'].append('nowhere')"
+check "a deprecation read that waits for a job that does not exist is reported" \
+	"deprecations waits for nowhere, which is not a job it reads" "$(audit "$WORK/dep-ghost.yml")"
+
+plant dep-in-gate "spec['jobs']['gate']['needs'].append('deprecations')"
+check "a gate that waits for the deprecation read is reported" \
+	"gate waits for deprecations, which a pull request cannot add to the job that answers for the suite" "$(audit "$WORK/dep-in-gate.yml")"
 
 plant gate-env "spec['jobs']['gate']['steps'][0]['env']['NEEDS'] = '\${{ toJSON(github) }}'"
 check "a gate that reads something other than the results of its jobs is reported" \
