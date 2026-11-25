@@ -184,6 +184,13 @@ tests/metadata/read-served.test.sh
 	tests/metadata/**
 	tests/fixtures/pacman/**
 
+# The tool-version watcher reads the pins from the two reusables that carry
+# them, and every workflow for a caller that would override them.
+
+tests/monitoring/check-tool-versions.test.sh
+	scripts/monitoring/check-tool-versions.sh
+	.github/workflows/**
+
 tests/pages/build-index-page.test.sh
 	scripts/pages/**
 	scripts/metadata/**

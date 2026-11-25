@@ -25,6 +25,9 @@ on:
     paths:
       - .github/workflows/freshness.yml
       - .github/workflows/reusable-schedule-freshness.yml
+      - .github/workflows/reusable-shell-ci.yml
+      - .github/workflows/reusable-workflow-lint.yml
+      - scripts/monitoring/check-tool-versions.sh
   push:
     branches: [main]
 
@@ -62,3 +65,30 @@ jobs:
       workflow: freshness.yml
       max-age-days: 2
       count-any-conclusion: true
+
+  # shellcheck and actionlint decide a required check, and each is pinned by version and sha256 inside a reusable workflow. Dependabot
+  # moves `uses:` pins and nothing else, so a version written as a value had no update path: a frozen linter stays green while the
+  # releases after it fix bugs and learn new checks, and nothing says so. The script compares the pins with the newest release of
+  # koalaman/shellcheck and rhysd/actionlint and fails when a newer one has been out for more than thirty days. It reads two public
+  # repositories with the job's own token, so `contents: read` is all it needs. Neither it nor the suite installs anything: the script
+  # imports yaml, which the runner image ships.
+  tool-versions:
+    name: pinned tool versions keep up with upstream
+    # ubuntu-latest on purpose: this job only asks GitHub or git for data and compares strings, so a new image cannot change its
+    # verdict.
+    runs-on: ubuntu-latest
+    # Two `gh release list` calls and a checkout: seconds. Ten minutes is the floor of this repository for a job whose honest run is
+    # seconds.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare the pinned tool versions with upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/monitoring/check-tool-versions.sh
