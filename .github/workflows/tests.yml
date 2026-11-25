@@ -231,6 +231,7 @@ jobs:
         ./tests/metadata/dbtool.test.sh
         ./tests/metadata/mkdb.test.sh
         ./tests/metadata/read-served.test.sh
+        ./tests/monitoring/check-tool-versions.test.sh
         ./tests/pages/build-index-page.test.sh
         ./tests/pages/build-installers.test.sh
         ./tests/pages/install-template.test.sh
