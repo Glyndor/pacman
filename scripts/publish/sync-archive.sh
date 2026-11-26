@@ -3,7 +3,7 @@
 # Upload the signed tree to the bucket without ever leaving a repository that does not hold together.
 #
 #   sync-archive.sh --tree <dir> --previous <dir> --public-key <file> --bucket <name> [--now <time>]
-#   sync-archive.sh --restore --previous <dir> --public-key <file> --bucket <name> [--tree <dir>]
+#   sync-archive.sh --restore --previous <dir> --public-key <file> --bucket <name> [--tree <dir>] [--if-mixed]
 #   sync-archive.sh --cleanup --tree <dir> --bucket <name> [--now <time>]
 #
 # The credentials are the R2 ones, in the environment. This step holds no signing key, so before it
@@ -13,6 +13,12 @@
 # What is put back (--previous) is verified before it is written, in a restore as in a publication: the database and the state
 # against the key of the repository, and the database has to be the one the state names. What is already in the bucket under
 # the name of a package to publish is read back and verified: the package is the same bytes, and its signature verifies it.
+#
+# A restore writes over a bucket only when each of the six objects of the database group is, byte for byte, the one of the
+# previous repository or the one of the tree that was being written (--tree, verified the same way): any mixture of the two,
+# which is what a publication that died between two writes leaves, and nothing else. With --if-mixed it writes only when the
+# group is a mixture, and leaves a group that is one of the two whole: that is how a later run puts back what a dead one left
+# without taking a finished publication back.
 #
 # Before anything is written, and again before the database group, the state that the bucket serves NOW is read and has to be
 # exactly the one the run was built on (--previous), absent only when there was none, and the new sequence is that one plus one:
@@ -45,11 +51,16 @@ on_exit() {
 trap on_exit EXIT
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-tree="" previous="" pub="" bucket="" restore_only=no cleanup_only=no
+tree="" previous="" pub="" bucket="" restore_only=no cleanup_only=no if_mixed=no
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 while [ "$#" -gt 0 ]; do
 	if [ "$1" = --restore ]; then
 		restore_only=yes
+		shift
+		continue
+	fi
+	if [ "$1" = --if-mixed ]; then
+		if_mixed=yes
 		shift
 		continue
 	fi
@@ -70,8 +81,9 @@ while [ "$#" -gt 0 ]; do
 	shift 2
 done
 if [ -z "$bucket" ] || { [ "$cleanup_only" = no ] && [ -z "$previous" ]; } || { [ "$restore_only" = no ] && [ -z "$tree" ]; } \
-	|| { [ "$cleanup_only" = no ] && [ -z "$pub" ]; }; then
-	echo "::error::usage: sync-archive.sh --tree <dir> --previous <dir> --public-key <file> --bucket <name> | --restore --previous <dir> --bucket <name> | --cleanup --tree <dir> --bucket <name>" >&2
+	|| { [ "$cleanup_only" = no ] && [ -z "$pub" ]; } \
+	|| { [ "$if_mixed" = yes ] && { [ "$restore_only" = no ] || [ -z "$tree" ]; }; }; then
+	echo "::error::usage: sync-archive.sh --tree <dir> --previous <dir> --public-key <file> --bucket <name> | --restore --previous <dir> --public-key <file> --bucket <name> [--tree <dir>] [--if-mixed] | --cleanup --tree <dir> --bucket <name>" >&2
 	exit 2
 fi
 [ "$restore_only" = yes ] || [ "$cleanup_only" = yes ] || write_mode=yes
@@ -115,6 +127,20 @@ if [ "$cleanup_only" = no ]; then
 		want="$(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$previous/state" db-sha256)" || exit 5
 		[ "$(sha256sum "$previous/glyndor.db.tar.zst" | cut -d' ' -f1)" = "$want" ] \
 			|| { echo "::error::the previous database is not the one the previous state names; it is not written, or put back" >&2; exit 5; }
+	fi
+	# The tree of a restore is the other repository the bucket may hold objects of, so it is believed only when it is signed.
+	if [ "$restore_only" = yes ] && [ -n "$tree" ]; then
+		for f in glyndor.db.tar.zst glyndor.state; do
+			gpgv --keyring "$work/ring.gpg" "$dir/$f.sig" "$dir/$f" > /dev/null 2>&1 \
+				|| { echo "::error::$f of the tree does not verify with the key of the repository; nothing is put back over it" >&2; exit 5; }
+		done
+		if ! cmp -s "$dir/glyndor.db" "$dir/glyndor.db.tar.zst" || ! cmp -s "$dir/glyndor.db.sig" "$dir/glyndor.db.tar.zst.sig"; then
+			echo "::error::glyndor.db of the tree is not a copy of glyndor.db.tar.zst with its signature; nothing is put back over it" >&2
+			exit 5
+		fi
+		want="$(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$dir/glyndor.state" db-sha256)" || exit 5
+		[ "$(sha256sum "$dir/glyndor.db.tar.zst" | cut -d' ' -f1)" = "$want" ] \
+			|| { echo "::error::the database of the tree is not the one its state names; nothing is put back over it" >&2; exit 5; }
 	fi
 fi
 if [ "$restore_only" = no ] && [ "$cleanup_only" = no ]; then
@@ -175,10 +201,10 @@ fetch() {
 	echo "::error::cannot read $1: $out" >&2
 	return 1
 }
-# check_live <dir of the state the run was built on> [<dir with the new state>]: the state served now is that one, byte for byte,
-# or absent when the run was built on none; and, when a second folder is given (a restore), that one is accepted too.
+# check_live <dir of the state the run was built on>: the state served now is that one, byte for byte, or absent when the
+# run was built on none.
 check_live() {
-	local rc=0 d ok=no
+	local rc=0 ok=no
 	fetch "$prefix/glyndor.state" "$work/live.state" || rc=$?
 	if [ "$rc" -eq 3 ]; then
 		[ -e "$1/no-state" ] || { echo "::error::the bucket has no state and this run was built on one; another run or a restore changed it; nothing is written" >&2; return 1; }
@@ -188,12 +214,6 @@ check_live() {
 	fetch "$prefix/glyndor.state.sig" "$work/live.state.sig" || { echo "::error::the bucket has a state with no signature or one that cannot be read; nothing is written" >&2; return 1; }
 	if [ ! -e "$1/no-state" ] && cmp -s "$work/live.state" "$1/state" && cmp -s "$work/live.state.sig" "$1/state.sig"; then
 		ok=yes
-	fi
-	if [ "$ok" = no ] && [ -n "${2:-}" ]; then
-		d="$2/arch/x86_64"
-		if [ -f "$d/glyndor.state" ] && cmp -s "$work/live.state" "$d/glyndor.state" && cmp -s "$work/live.state.sig" "$d/glyndor.state.sig"; then
-			ok=yes
-		fi
 	fi
 	[ "$ok" = yes ] || { echo "::error::the state the bucket serves now is not the one this run was built on; another publication or a copy of an older repository got there first; nothing is written" >&2; return 1; }
 }
@@ -297,9 +317,44 @@ restore_previous() {
 	fi
 	return "$restored"
 }
+# check_group: every object of the database group the bucket holds is the one of the previous repository (absent, where there
+# was none) or the one of the tree, byte for byte. Sets $held to previous, new or mixed; a third content fails.
+held=""
+check_group() {
+	local f rc was is all_previous=yes all_new=yes
+	for f in glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.db glyndor.db.sig glyndor.state glyndor.state.sig; do
+		case "$f" in
+			glyndor.db) was="$previous/glyndor.db.tar.zst" ;;
+			glyndor.db.sig) was="$previous/glyndor.db.tar.zst.sig" ;;
+			glyndor.state) was="$previous/state" ;;
+			glyndor.state.sig) was="$previous/state.sig" ;;
+			*) was="$previous/$f" ;;
+		esac
+		is=no rc=0
+		fetch "$prefix/$f" "$work/live.$f" || rc=$?
+		case "$rc" in
+			0)
+				if [ -e "$previous/no-state" ] || ! cmp -s "$work/live.$f" "$was"; then was=no; else was=yes; fi
+				if [ -n "$tree" ] && cmp -s "$work/live.$f" "$dir/$f"; then is=yes; fi
+				;;
+			3) if [ -e "$previous/no-state" ]; then was=yes; else was=no; fi ;;
+			*) return 1 ;;
+		esac
+		if [ "$was" = no ] && [ "$is" = no ]; then
+			echo "::error::$f in the bucket is neither the one of the previous repository nor the one of the tree that was being written; another publication or somebody else changed it; nothing is written" >&2
+			return 1
+		fi
+		[ "$was" = yes ] || all_previous=no
+		[ "$is" = yes ] || all_new=no
+	done
+	if [ "$all_previous" = yes ]; then held=previous; elif [ "$all_new" = yes ]; then held=new; else held=mixed; fi
+}
 if [ "$restore_only" = yes ]; then
-	# What is there now is the state of the previous repository or the one of the tree that was being written, and nothing else.
-	check_live "$previous" "$tree" || exit 1
+	check_group || exit 1
+	if [ "$if_mixed" = yes ] && [ "$held" != mixed ]; then
+		echo "the bucket holds the $held database group whole; nothing is put back"
+		exit 0
+	fi
 	rc=0
 	restore_previous glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.db glyndor.db.sig glyndor.state glyndor.state.sig || rc=$?
 	exit "$rc"

@@ -60,9 +60,12 @@ workflow-lint / workflow-lint"
 # and by hand, from main, and none of them is a check of a pull request: they were `no` until their workflows were in the
 # repository, and are `yes` now that they are. They run by hand only until the channel publishes for real: their cron is added in
 # the pull request of the first publication, which adds `schedule` to the events of the row and a watcher for each cron. Any other workflow runs on pull_request alone.
+# The recovery of a publication runs by hand, and the notice of one that did not finish when a publication ends.
 NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)	yes
 freshness.yml	pull_request push schedule	freshness-codeql / schedule freshness|freshness-itself / schedule freshness|pinned tool versions keep up with upstream	yes
 publish.yml	workflow_dispatch	admit|build|sign|publish|verify / served|verify / install	yes
+publication-notice.yml	workflow_run	notice	yes
+recover.yml	workflow_dispatch	recover	yes
 verify-live.yml	workflow_dispatch	pinned / served|pinned / install|current / served|current / install|distro-newer	yes
 rehearsal.yml	workflow_dispatch	rehearsal	yes"
 NOT_PR_NAMES="$(printf '%s\n' "$NOT_PR" | cut -f3 | tr '|' '\n')"

@@ -1,0 +1,51 @@
+name: Publication notice
+
+# Says, in an issue, that a publication did not finish: which run, and until when the two artifacts a recovery needs are
+# kept. A run of its own, started by the end of the publication, because a job that dies with its runner reports nothing.
+# It checks nothing out, runs nothing of the tree and holds no secret; the only thing it can write is an issue.
+on:
+  workflow_run:
+    workflows: ["Publish pacman repository"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  notice:
+    name: notice
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read # the artifacts of the run and when they expire
+      issues: write
+    timeout-minutes: 5
+    steps:
+      - name: Open an issue for a publication that did not finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          if [ "$CONCLUSION" = success ]; then
+            echo "the publication succeeded; there is nothing to report"
+            exit 0
+          fi
+          # A run that kept both artifacts had a signed tree, so its publish job may have written. One that did not, did not.
+          expiry="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.name == "served" or .name == "signed-tree") | .expires_at] | if length == 2 then min else empty end')"
+          if [ -z "$expiry" ]; then
+            echo "run $RUN_ID ended as $CONCLUSION before it had kept both artifacts, so it wrote nothing"
+            exit 0
+          fi
+          title="Publication run $RUN_ID did not finish ($CONCLUSION)"
+          open="$(gh issue list -R "$REPO" --state open --author app/github-actions --limit 100 --json title --jq '.[].title')"
+          if printf '%s\n' "$open" | grep -qxF -- "$title"; then
+            echo "this was already reported"
+            exit 0
+          fi
+          body="$(printf '%s\n' \
+            "Run $RUN_ID of the publication ended as $CONCLUSION: https://github.com/$REPO/actions/runs/$RUN_ID" "" \
+            "It may have left the served repository half written. Its artifacts \`served\` and \`signed-tree\`, which a recovery needs, are kept until $expiry." "" \
+            "To recover, run the workflow \`Recover a publication\` from main with run_id $RUN_ID, as docs/operations.md says. It writes only over a half written repository.")"
+          gh issue create -R "$REPO" --title "$title" --body "$body" --label type:bug --label prio:P1

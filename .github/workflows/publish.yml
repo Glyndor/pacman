@@ -119,7 +119,8 @@ jobs:
           name: served
           path: ${{ runner.temp }}/served
           if-no-files-found: error
-          retention-days: 3
+          # How long a publication that did not finish can still be recovered from (recover.yml).
+          retention-days: 14
 
   build:
     name: build
@@ -223,7 +224,8 @@ jobs:
           name: signed-tree
           path: ${{ runner.temp }}/in/tree
           if-no-files-found: error
-          retention-days: 3
+          # How long a publication that did not finish can still be recovered from (recover.yml).
+          retention-days: 14
 
   publish:
     name: publish

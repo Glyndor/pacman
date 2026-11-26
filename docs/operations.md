@@ -28,6 +28,35 @@ because a re-run would write with the state of the first attempt. Two
 publications never run at once (`concurrency: publish-pacman`, and a run in flight
 is not cancelled). The bucket is `glyndor-pacman`.
 
+## A publication that did not finish
+
+The database group is six objects written one after another (the database, its
+signature, their two copies, the state and its signature), and the six writes are
+not one. When a write fails, the run puts the previous group back itself. When the
+run dies between two writes, because its runner is lost or the job runs out of
+time, nothing does: a client cannot verify what is served and the next
+publication refuses to start from it.
+
+`publication-notice.yml` opens an issue when a publication that had kept the
+artifacts `served` and `signed-tree` ends in anything but success. The issue names
+the run and the date the artifacts expire, 14 days after the run.
+
+1. Before that date, run `Recover a publication` (`recover.yml`) from `main` with
+   the id of the run. It holds the bucket and the purge credentials and no signing
+   key, and it never runs at the same time as a publication.
+2. It refuses a run that is not a finished publication from `main`. It writes only
+   when each of the six objects is, byte for byte, the one of the previous group or
+   the one that run was writing, and the six are neither group whole: then it puts
+   the previous group back. A group that is one of the two whole is left as it is.
+3. It purges the edge and reads the repository the way the next publication does.
+   Then start a new publication.
+
+When it refuses because an object is neither, something else wrote to the bucket:
+find out what before anything is written. The read of step 3 refuses a state that
+has expired, so when the previous publication is older than the 14 days its state
+lasts, the previous group is put back and the run still fails. Once the artifacts
+have expired this way back is gone.
+
 ## The other workflows
 
 | workflow | when | what |
@@ -35,6 +64,8 @@ is not cancelled). The bucket is `glyndor-pacman`.
 | `tests.yml` | every pull request | the checks of a pull request that are this repository's own (see [CONTRIBUTING.md](../CONTRIBUTING.md)) |
 | `codeql.yml` | pull requests into `main`, pushes to `main`, Mondays 05:23 UTC | the analysis of the workflows and of the Python |
 | `freshness.yml` | twice a day (08:13 and 20:13 UTC), pushes to `main`, and pull requests that change the watchers | the watchers of the crons (`codeql.yml` and itself) and the check that the pinned `shellcheck` and `actionlint` keep up with upstream |
+| `recover.yml` | by hand | the previous database group put back over a publication that left it half written, purged and read back (see above) |
+| `publication-notice.yml` | the end of a publication | an issue when it did not succeed and may have written, with the run and the date its artifacts expire |
 | `verify-live.yml` | by hand | the published repository read from the public address and installed on the Arch the packages were built on (`pinned`) and on the Arch of today (`current`), and that no package of it is older than the one Arch carries (`distro-newer`) |
 | `rehearsal.yml` | by hand | the whole publication, twice, with a key and a release made for the run and nothing real in it; it reads no secret and never touches the bucket |
 
