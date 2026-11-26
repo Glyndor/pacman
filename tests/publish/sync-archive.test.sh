@@ -94,9 +94,18 @@ V2PREV="$PREV"
 signed "$WORK/pk2" "$V2PREV" "$T2"
 check "a later publication, past the retention of the replaced package" "0" "$(rc_of sync "$V2PREV" "$T2")"
 check "does not delete anything itself: the cleanup is a step of its own, after the read back" "0" "$(grep -c '^delete' "$FAKE_LOG" || true)"
-check "the cleanup deletes the replaced package and its signature" "delete arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst
-delete arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig" "$(cleanup "$T2" > "$WORK/last.out" 2>&1; grep '^delete' "$FAKE_LOG")"
-check "and says why" "1" "$(says 'retired and past')"
+check "the cleanup, past the retention, deletes nothing: a signed database a client still holds may name the package" "0 0" \
+	"$(cleanup "$T2" > "$WORK/last.out" 2>&1; echo "$? $(grep -c '^delete' "$FAKE_LOG")")"
+check "the replaced package and its signature are still in the bucket" "yes" \
+	"$([ -f "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst" ] && [ -f "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig" ] && echo yes || echo no)"
+check "and the cleanup says which file it keeps and why" "1" "$(says 'retaining acme-1.2.2-1-x86_64.pkg.tar.zst: clients do not enforce')"
+kept_bytes=$(($(stat -c %s "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst") + $(stat -c %s "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig")))
+check "and warns in the run how many files are kept and how many bytes with their signatures" "1" \
+	"$(says "::warning::1 retired package file(s) are kept in the bucket, $kept_bytes bytes with their signatures (0 object(s) whose size could not be read)")"
+rm "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig"
+check "a retired object whose size cannot be read is counted as such, and the cleanup still succeeds" "0 1" \
+	"$(cleanup "$T2" > "$WORK/last.out" 2>&1; echo "$? $(says '(1 object(s) whose size could not be read)')")"
+printf x > "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig"
 check "the current package is still there" "yes" "$([ -f "$FAKE_BUCKET/arch/x86_64/acme-1.2.3-1-x86_64.pkg.tar.zst" ] && echo yes || echo no)"
 
 echo "-- refused before a byte is written"

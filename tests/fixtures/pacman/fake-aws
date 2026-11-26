@@ -10,7 +10,8 @@
 # NoSuchKey text (FAKE_GET_ERROR makes it answer with that text instead). put-object --if-none-match '*' fails with the
 # PreconditionFailed text when the object exists; `put-object help` lists that option unless FAKE_NO_COND_SUPPORT=1.
 # FAKE_HIDE_HEAD is a substring: the first FAKE_HIDE_COUNT (default 1) head-objects of each key that contains it answer 404
-# whatever the bucket holds (a copy that appears between the head and the write).
+# whatever the bucket holds (a copy that appears between the head and the write). head-object --query ContentLength
+# answers the size of the object.
 set -euo pipefail
 export LC_ALL=C
 if [ "${1:-}" = "--version" ]; then
@@ -25,7 +26,7 @@ if [ "${1:-}" = help ]; then
 	[ "${FAKE_NO_COND_SUPPORT:-0}" = 1 ] || echo "[--if-none-match <value>]"
 	exit 0
 fi
-key="" body="" sha="" bucket="" cond="" outfile=""
+key="" body="" sha="" bucket="" cond="" outfile="" query=""
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--bucket) bucket="$2"; shift 2 ;;
@@ -33,7 +34,8 @@ while [ "$#" -gt 0 ]; do
 		--body) body="$2"; shift 2 ;;
 		--metadata) sha="${2#sha256=}"; shift 2 ;;
 		--if-none-match) cond="$2"; shift 2 ;;
-		--cache-control | --content-type | --output | --query) shift 2 ;;
+		--query) query="$2"; shift 2 ;;
+		--cache-control | --content-type | --output) shift 2 ;;
 		--*) echo "fake-aws: unknown option $1" >&2; exit 64 ;;
 		*) if [ "$action" = get-object ] && [ -z "$outfile" ]; then outfile="$1"; shift; else echo "fake-aws: unknown argument $1" >&2; exit 64; fi ;;
 	esac
@@ -65,7 +67,8 @@ case "$action" in
 			exit 254
 		fi
 		if [ -f "$root/$key" ]; then
-			if [ -f "$meta" ]; then cat "$meta"; else echo None; fi
+			if [ "$query" = ContentLength ]; then stat -c %s "$root/$key"
+			elif [ -f "$meta" ]; then cat "$meta"; else echo None; fi
 			exit 0
 		fi
 		echo "An error occurred (404) when calling the HeadObject operation: Not Found" >&2

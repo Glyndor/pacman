@@ -30,9 +30,9 @@
 #      repository before this run, signatures verified) is put back, and the run still fails; where there is
 #      no previous one the objects written are deleted. Reading back is the caller's check, restoring is
 #      this script's.
-#   4. Cleanup, by `--cleanup` and after the caller has read the repository back: only packages the state lists as retired and whose delete-after time has gone by,
-#      and never one the new database names. Old files stay while a signed database that a client could
-#      still hold names them.
+#   4. Cleanup, by `--cleanup` and after the caller has read the repository back: it deletes nothing. Every package the state lists
+#      as retired is said to be kept, since a signed database that a client could still hold names it and pacman does not
+#      read the time until which a state is valid, which is what a delete would have to wait for.
 set -euo pipefail
 export LC_ALL=C
 # Exit status 5 is a refusal that came before the first write: nothing in the bucket was touched, so the caller has nothing to put back.
@@ -311,17 +311,25 @@ if [ "$cleanup_only" = yes ]; then
 	retired="$(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$dir/glyndor.state" retired)" \
 		|| { echo "::error::cannot read the retired packages of the state" >&2; exit 1; }
 	current="$(python3 -I "$HERE/scripts/metadata/dbtool.py" entries "$dir/glyndor.db.tar.zst" | cut -f3)"
-	while read -r file _retired_at delete_after; do
+	kept=0 bytes=0 unread=0
+	while read -r file _retired_at _delete_after; do
 		[ -n "$file" ] || continue
 		if printf '%s\n' "$current" | grep -qxF -- "$file"; then
 			continue
 		fi
-		if [ "$delete_after" \< "$now" ]; then
-			s3api delete-object --bucket "$bucket" --key "$prefix/$file" > /dev/null
-			s3api delete-object --bucket "$bucket" --key "$prefix/$file.sig" > /dev/null
-			echo "deleted $file, retired and past $delete_after"
-		fi
+		# Nothing retired is deleted: a client that still holds an earlier signed database, or is served one, accepts its
+		# signature, and only the scripts of this channel read the time until which a state is valid.
+		echo "::notice::retaining $file: clients do not enforce signed-state expiry"
+		kept=$((kept + 1))
+		for object in "$file" "$file.sig"; do
+			size="$(s3api head-object --bucket "$bucket" --key "$prefix/$object" --output text --query ContentLength 2> /dev/null)" || size=""
+			case "$size" in '' | *[!0-9]*) unread=$((unread + 1)) ;; *) bytes=$((bytes + size)) ;; esac
+		done
 	done <<< "$retired"
+	# Said in the run, where it is seen: what is kept grows with every publication until a bounded retention exists.
+	if [ "$kept" -gt 0 ]; then
+		echo "::warning::$kept retired package file(s) are kept in the bucket, $bytes bytes with their signatures ($unread object(s) whose size could not be read): the cleanup deletes nothing, so the bucket grows with every publication"
+	fi
 	echo "cleanup done"
 	exit 0
 fi
