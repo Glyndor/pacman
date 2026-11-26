@@ -13,11 +13,13 @@
 #   * a reusable workflow is judged by its own file, and the caller by its.
 #
 # So every workflow declares its permissions at the top, each job that declares its
-# own does so with read scopes only, and anything else is a failure. The one exception
-# is `security-events: write` in codeql.yml, which is how CodeQL uploads its results and
-# which that workflow holds beside a read-only token, no secret and no tool installed.
-# Any other write scope, or this one anywhere else, is a decision for a pull request that
-# changes this test and says why.
+# own does so with read scopes only, and anything else is a failure. There are two
+# exceptions. `security-events: write` in codeql.yml is how CodeQL uploads its results,
+# held beside a read-only token, no secret and no tool installed. `issues: write` in
+# publication-notice.yml is how a publication that did not finish is reported: that job
+# starts when the publication ends, checks nothing out and reads no secret, which
+# publication-recovery.test.sh holds. Any other write scope, or one of these anywhere
+# else, is a decision for a pull request that changes this test and says why.
 #
 # For the same reason nothing here cancels another run. A job that cancels the other
 # runs of a commit needs `actions: write`, and a list of the workflows it may cancel
@@ -61,7 +63,7 @@ import yaml
 
 
 # (workflow file, scope): the write scopes a workflow may grant to a job of its own.
-ALLOWED = {("codeql.yml", "security-events: write")}
+ALLOWED = {("codeql.yml", "security-events: write"), ("publication-notice.yml", "issues: write")}
 
 
 def scopes(value):
@@ -157,6 +159,9 @@ check "another write scope in codeql.yml is reported" "codeql.yml: job j grants 
 	"$(audit "$(plant_as cq3 codeql.yml "${codeql_job/contents: read
       security-events/contents: write
       security-events}")")"
+notice_job="${codeql_job/security-events: write/issues: write}"
+check "issues: write on a job of publication-notice.yml passes" "" "$(audit "$(plant_as pn publication-notice.yml "$notice_job")")"
+check "the same scope in any other workflow is reported too" "other.yml: job j grants issues: write" "$(audit "$(plant_as pn2 other.yml "$notice_job")")"
 check "security-events: write on the workflow of codeql.yml is still reported" "codeql.yml: the workflow grants security-events: write" \
 	"$(audit "$(plant_as cq4 codeql.yml "permissions:
   security-events: write

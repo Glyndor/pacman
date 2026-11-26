@@ -233,6 +233,30 @@ tests/publish/sync-archive.test.sh
 	tests/publish/**
 	tests/fixtures/pacman/**
 
+tests/publish/sync-archive-restore.test.sh
+	scripts/publish/**
+	scripts/metadata/**
+	scripts/sign/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/publish/recover.test.sh
+	scripts/publish/**
+	scripts/metadata/**
+	scripts/sign/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/publish/check-recovery-run.test.sh
+	scripts/publish/**
+	tests/publish/**
+	tests/fixtures/pacman/**
+
+tests/ci/policy/workflows/publication-recovery.test.sh
+	.github/workflows/**
+	tests/ci/policy/**
+	tests/fixtures/pacman/**
+
 tests/publish/verify-published.test.sh
 	scripts/publish/**
 	scripts/metadata/**

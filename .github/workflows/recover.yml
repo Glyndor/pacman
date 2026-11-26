@@ -1,0 +1,81 @@
+name: Recover a publication
+
+# By hand, from main, after a publication that did not finish (publication-notice.yml says so in an issue). It puts the
+# previous repository back over a database group that run left half written, from the two artifacts the run kept, and
+# reads the served repository back. It holds the bucket and the purge credentials, in the environment `publish`, and no
+# signing key. docs/operations.md says when to run it.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The id of the run of 'Publish pacman repository' that did not finish"
+        required: true
+        type: string
+
+permissions: {}
+
+# The group of publish.yml: a recovery and a publication never write at once.
+concurrency:
+  group: publish-pacman
+  cancel-in-progress: false
+
+env:
+  ARCHIVE_URL: https://pacman.glyndor.net
+  BUCKET: glyndor-pacman
+
+jobs:
+  recover:
+    name: recover
+    runs-on: ubuntu-26.04
+    environment: publish
+    permissions:
+      contents: read
+      actions: read # the run to recover from and its artifacts
+    # Two artifacts, six writes at most, the purge and the read back with up to six attempts ten seconds apart.
+    timeout-minutes: 15
+    steps:
+      - name: Refuse any event or ref that is not allowed
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in schedule | workflow_dispatch) ;; *) echo "::error::$EVENT is not an event this workflow runs on"; exit 1 ;; esac
+          [ "$REF" = refs/heads/main ] || { echo "::error::$REF is not refs/heads/main"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check the run to recover from
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          bash scripts/publish/check-recovery-run.sh "$RUN_ID"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: served
+          path: ${{ runner.temp }}/in/served
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-tree
+          path: ${{ runner.temp }}/in/tree
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Put the previous repository back, purge and read back
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GLYNDOR_PACMAN_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GLYNDOR_PACMAN_R2_SECRET_ACCESS_KEY }}
+          # The endpoint is read by the AWS CLI from the environment, so it never reaches argv.
+          AWS_ENDPOINT_URL: ${{ secrets.GLYNDOR_PACMAN_R2_ENDPOINT }}
+          AWS_DEFAULT_REGION: auto
+          CF_TOKEN: ${{ secrets.GLYNDOR_CF_PURGE_TOKEN }}
+          CF_ZONE: ${{ secrets.GLYNDOR_CF_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          bash scripts/publish/recover.sh --tree "$RUNNER_TEMP/in/tree" --previous "$RUNNER_TEMP/in/served" \
+            --public-key keyring/glyndor-pacman-key.asc --bucket "$BUCKET" --url "$ARCHIVE_URL"

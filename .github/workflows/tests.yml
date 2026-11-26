@@ -199,6 +199,7 @@ jobs:
         ./tests/ci/policy/workflows/no-write-permissions.test.sh
         ./tests/ci/policy/workflows/persist-credentials.test.sh
         ./tests/ci/policy/workflows/publish-rerun-guard.test.sh
+        ./tests/ci/policy/workflows/publication-recovery.test.sh
         ./tests/ci/policy/workflows/pull-request-runs-are-superseded.test.sh
         ./tests/ci/policy/workflows/required-check-names.test.sh
         ./tests/ci/policy/workflows/reusable-caller-permissions.test.sh
@@ -239,6 +240,9 @@ jobs:
         ./tests/publish/publish.test.sh
         ./tests/publish/purge-cache.test.sh
         ./tests/publish/sync-archive.test.sh
+        ./tests/publish/sync-archive-restore.test.sh
+        ./tests/publish/recover.test.sh
+        ./tests/publish/check-recovery-run.test.sh
         ./tests/publish/verify-published.test.sh
         ./tests/quality/coverage/check-suites-wired.test.sh
         ./tests/quality/coverage/check-test-coverage.test.sh
