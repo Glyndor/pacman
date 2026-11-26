@@ -80,8 +80,8 @@ def read_keys(path: str, size: int, what: str, missing_is_empty: bool) -> list:
 	except OSError as exc:
 		fail(TRUST_ANCHOR, f"cannot read the {what} key file {path}: {exc}")
 	# Printable ASCII and line feeds, and nothing else. Every other reader of these
-	# files splits lines on the line feed alone (the release workflow, the steps of
-	# docs/verify.md, the apt archive), and splitlines() would also split on a
+	# files splits lines on the line feed alone (the release workflow, the apt
+	# archive), and splitlines() would also split on a
 	# carriage return, a form feed or a U+0085: a key behind one would be a key
 	# here and a comment to all of them, so the file is refused instead.
 	outside = sorted({b for b in data if b != 0x0A and not 0x20 <= b <= 0x7E})

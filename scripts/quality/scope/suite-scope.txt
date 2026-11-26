@@ -269,6 +269,12 @@ tests/verify/run-live.test.sh
 	scripts/assemble/**
 	tests/verify/**
 
+tests/docs/operations.test.sh
+	docs/operations.md
+	.github/workflows/**
+	tests/docs/**
+	tests/fixtures/pacman/**
+
 tests/docs/readme.test.sh
 	README.md
 	keyring/**

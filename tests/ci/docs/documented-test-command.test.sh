@@ -127,7 +127,10 @@ sort "$WORK/given" > "$WORK/given.sorted" 2>/dev/null
 check "the command gives the runner every suite of this repository but itself" "" "$(diff "$WORK/expected" "$WORK/given.sorted")"
 check "and there is at least one suite to give" "1" "$([ -s "$WORK/expected" ] && echo 1 || echo 0)"
 
-flat="$(cat "$HERE/CONTRIBUTING.md" "$HERE/.github/PULL_REQUEST_TEMPLATE.md" | grep -cE 'tests/\*\.(test\.)?sh|scripts/\*\.sh')"
+# The pull request template is the organisation's when this repository has none of its own.
+docs=("$HERE/CONTRIBUTING.md")
+[ ! -f "$HERE/.github/PULL_REQUEST_TEMPLATE.md" ] || docs+=("$HERE/.github/PULL_REQUEST_TEMPLATE.md")
+flat="$(cat "${docs[@]}" | grep -cE 'tests/\*\.(test\.)?sh|scripts/\*\.sh')"
 check "no flat glob over tests/ or scripts/ is documented" "0" "$flat"
 
 echo
