@@ -82,7 +82,8 @@ if [ "$ok" = yes ]; then
 		--attempts "${VERIFY_ATTEMPTS:-6}" --delay "${VERIFY_DELAY:-10}" --deep || ok=no
 fi
 if [ "$ok" = yes ]; then
-	# What was retired and is past its time goes now, after the read back: an old file stays while anything could still name it.
+	# The cleanup comes after the read back; it keeps every retired package, because a signed database that a client could
+	# still hold names it, and says which.
 	if ! bash "$HERE/scripts/publish/sync-archive.sh" --cleanup --tree "$stage" --bucket "$bucket" --now "$now"; then
 		echo "::error::published and read back, but the cleanup of retired packages failed" >&2
 		exit 1
