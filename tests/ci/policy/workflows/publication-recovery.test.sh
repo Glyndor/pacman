@@ -92,6 +92,32 @@ check "a recovery that reads the artifacts of its own run" "the recovery does no
 check "an artifact kept too short to recover from" "publish.yml does not keep the artifact signed-tree for 14 days" \
 	"$(planted short publish.yml '__import__("re").sub(r"(name: signed-tree\n(?:.*\n){3} *retention-days: )14", r"\g<1>3", s)')"
 
+# --- an expired state is published over only when somebody names it, by hand --------------------
+check "only the publication and the recovery name an expired state" \
+	".github/workflows/publish.yml .github/workflows/recover.yml scripts/publish/recover.sh" \
+	"$(cd "$HERE" && grep -rl -e '--expired-state' .github/workflows scripts --include='*.yml' --include='*.sh' | grep -v '^scripts/metadata/read-served.sh$' | sort | tr '\n' ' ' | sed 's/ $//')"
+python3 -I - "$HERE/.github/workflows/publish.yml" "$WORK/admit-read.sh" > "$WORK/admit-env" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1]) as fh:
+    steps = yaml.safe_load(fh)["jobs"]["admit"]["steps"]
+step = next(s for s in steps if s.get("name") == "Read what the repository serves")
+open(sys.argv[2], "w").write(step["run"])
+print(step["env"]["EXPIRED"])
+PY
+check "the publication takes the state only from a run started by hand" \
+	"\${{ github.event_name == 'workflow_dispatch' && inputs.expired_state || '' }}" "$(cat "$WORK/admit-env")"
+mkdir -p "$WORK/tree/scripts/metadata"
+printf '#!/usr/bin/env bash\nprintf "[%%s]" "$@"\n' > "$WORK/tree/scripts/metadata/read-served.sh"
+asked() { # <FIRST> <EXPIRED>: the arguments the admission hands to read-served.sh after the address and the folder
+	(cd "$WORK/tree" && FIRST="$1" EXPIRED="$2" ARCHIVE_URL=https://example.invalid RUNNER_TEMP="$WORK/tmp" bash "$WORK/admit-read.sh") \
+		| sed 's/^\[--url\]\[[^]]*\]\[--out\]\[[^]]*\]//'
+}
+check "a scheduled run, whose inputs are empty, asks for nothing" "" "$(asked false '')"
+check "the state that was named reaches the reading whole" "[--expired-state][7 abc]" "$(asked false '7 abc')"
+
 # --- the step of the notice, run against a stand-in for gh --------------------------------------
 python3 -I - "$HERE/.github/workflows/publication-notice.yml" > "$WORK/step.sh" <<'PY'
 import sys

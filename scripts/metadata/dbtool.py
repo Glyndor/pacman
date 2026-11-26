@@ -3,7 +3,7 @@
 
   dbtool.py entries DB
   dbtool.py state-make --previous STATE|- --db DB --now ISO --served SERVED --out FILE
-  dbtool.py state-check STATE --db DB --now ISO
+  dbtool.py state-check STATE --db DB --now ISO [--to-replace]
   dbtool.py state-get STATE KEY
 
 `entries` prints what a SERVED database says, one package per line and separated by a TAB: name, pkgver, file, compressed
@@ -15,7 +15,8 @@ SIGNS is not read from anywhere: mkdb.py writes it from what was admitted.
 pacman has no expiry or counter in its database, so the repository carries its own: `state-make` writes the
 state a signature will cover (a sequence number, the time, when it stops being valid, the hash of the databases
 and which packages were replaced and until when they stay), and `state-check` refuses one that is expired, from
-the future, or about another database.
+the future, or about another database. With --to-replace an expired one passes, with a warning: that is how a
+publication reads the state it is about to replace, once read-served.sh has compared it with the recorded one.
 
 Exit 0 done, 1 refused.
 """
@@ -274,7 +275,8 @@ def cmd_state_check(args):
 	now = parse_time(args.now)
 	if parse_time(state["generated"]) > now + datetime.timedelta(seconds=FUTURE_SECONDS):
 		raise Refused(f"the state says it was generated {state['generated']}, which is in the future")
-	if parse_time(state["valid-until"]) <= now:
+	expired = parse_time(state["valid-until"]) <= now
+	if expired and not args.to_replace:
 		raise Refused(f"the state expired at {state['valid-until']}")
 	if parse_time(state["valid-until"]) - parse_time(state["generated"]) != datetime.timedelta(days=VALID_DAYS):
 		raise Refused(f"the state is valid for other than {VALID_DAYS} days")
@@ -282,7 +284,10 @@ def cmd_state_check(args):
 		raise Refused("the state is about another database than the one served")
 	if len(read_database(args.db)) != int(state["packages"]):
 		raise Refused("the state counts another number of packages than the database lists")
-	print(f"state {state['sequence']} is valid until {state['valid-until']}")
+	if expired:
+		print(f"::warning::state {state['sequence']} expired at {state['valid-until']}; it is read to be replaced by a publication")
+	else:
+		print(f"state {state['sequence']} is valid until {state['valid-until']}")
 
 
 def cmd_state_get(args):
@@ -308,6 +313,7 @@ def main():
 	cmd.add_argument("state")
 	cmd.add_argument("--db", required=True)
 	cmd.add_argument("--now", required=True)
+	cmd.add_argument("--to-replace", action="store_true")
 	cmd = sub.add_parser("state-get")
 	cmd.add_argument("state")
 	cmd.add_argument("key")

@@ -1,0 +1,11 @@
+# The newest state of the repository this channel has recorded as served: its sequence and the sha256 of its database,
+# separated by a space, or `none` before the first publication.
+#
+#   <sequence> <sha256 of glyndor.db.tar.zst>
+#
+# A durable record that does not depend on what the bucket serves, kept in the repository and raised by a reviewed
+# pull request, as scripts/assemble/floor.txt is. check-state-floor.sh refuses a served state of a lower sequence, so a
+# repository signed earlier and put back is not taken for the current one, and one of the recorded sequence with another
+# database. It protects up to what is recorded here and no further. An expired state is published over only when one is
+# recorded.
+none

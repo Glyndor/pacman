@@ -89,6 +89,9 @@ if [ "$ok" = yes ]; then
 		exit 1
 	fi
 	echo "published, and read back from $url"
+	# What an operator records, and names to publish over this state once it has expired: taken from this log, which the
+	# bucket cannot change.
+	echo "the state published: $(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$stage/arch/x86_64/glyndor.state" sequence) $(sha256sum "$stage/arch/x86_64/glyndor.db.tar.zst" | cut -d' ' -f1)"
 	exit 0
 fi
 

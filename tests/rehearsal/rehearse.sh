@@ -77,7 +77,9 @@ round() {
 	printf 'v%s\n' "$version" > "$WORK/rel/alpha/LATEST"
 	echo "== round $n: $version"
 	# admit
-	bash "$HERE/scripts/metadata/read-served.sh" --url "$BASE" --out "$dir/served" --key "$WORK/gpg/pub.asc" "$@"
+	# the rehearsal publishes under its own key: nothing of it is recorded
+	echo none > "$WORK/state-floor.txt"
+	bash "$HERE/scripts/metadata/read-served.sh" --url "$BASE" --out "$dir/served" --key "$WORK/gpg/pub.asc" --floor "$WORK/state-floor.txt" "$@"
 	bash "$HERE/scripts/admit/admit-all.sh" --out "$dir/admitted" --served "$dir/served/served.tsv" --products "$WORK/products.txt" \
 		--ed25519-keys "$WORK/release/release.b64" --pq-required "$WORK/none" --signers "$WORK/signers.txt" --paths "$FIXTURES/paths-permissive.txt" "$@"
 	bash "$HERE/scripts/keyring/make-keyring.sh" --admitted "$dir/admitted" --manifest "$dir/admitted/manifest.tsv" --pkginfo "$dir/admitted/pkginfo.json" --epoch 1700000000

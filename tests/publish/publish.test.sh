@@ -55,6 +55,7 @@ db() { sha256sum "$WORK/bucket/arch/x86_64/glyndor.db.tar.zst" | cut -d' ' -f1; 
 signed "$WORK/pk1" "$WORK/first" "$T0"; V1="$PREV"; V1DB="$(sha256sum "$D/glyndor.db.tar.zst" | cut -d' ' -f1)"
 check "a first publication is uploaded, purged and read back" "0" "$(rc_of publish "$WORK/first" "$T0")"
 check "and says that it was read back" "1" "$(says 'read back from')"
+check "and prints the state it published, which is what an operator records" "1" "$(says "the state published: 1 $V1DB")"
 check "the bucket holds the new database" "$V1DB" "$(db)"
 check "the edge was told once" "1" "$(posts)"
 

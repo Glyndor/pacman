@@ -31,7 +31,8 @@ rc_of() { local rc=0; "$@" > "$WORK/last.out" 2>&1 || rc=$?; echo "$rc"; }
 says() { if grep -q -F -- "$1" "$WORK/last.out"; then echo 1; else echo 0; fi; }
 serve() { rm -rf "$WORK/site"/* "$WORK/out"; cp -r "$WORK/tree/." "$WORK/site/"; }
 D="$WORK/site/arch/x86_64"
-check_it() { bash "$SCRIPT" --url "$URL" --key "${KEY:-$WORK/key/pub.asc}" --now "${AT:-$NOW}" --out "$WORK/out" "$@"; }
+echo none > "$WORK/floor-none"
+check_it() { bash "$SCRIPT" --url "$URL" --key "${KEY:-$WORK/key/pub.asc}" --floor "${FLOOR:-$WORK/floor-none}" --now "${AT:-$NOW}" --out "$WORK/out" "$@"; }
 
 serve
 check "a repository that holds together" "0" "$(rc_of check_it)"
@@ -61,6 +62,10 @@ check "a state that has expired" "1" "$(AT=2027-02-01T00:00:00Z rc_of check_it)"
 check "a public key that did not sign it" "1" "$(rm -rf "$WORK/out"; make_gpg_key "$WORK/other"; KEY="$WORK/other/pub.asc" rc_of check_it)"
 check "a server with nothing on it is not a sound repository" "1" "$(rm -rf "$WORK/site"/* "$WORK/out"; rc_of check_it)"
 check "an option that is not known" "2" "$(rc_of check_it --nope x)"
+printf '2 %064d\n' 0 > "$WORK/floor-newer"
+serve; rm -rf "$WORK/out"
+check "a served state older than the recorded one fails the check of what clients see" "1" "$(FLOOR="$WORK/floor-newer" rc_of check_it)"
+check "and says why" "1" "$(says 'an earlier signed repository was put back')"
 check "no address" "2" "$(rc_of bash "$SCRIPT")"
 
 finish

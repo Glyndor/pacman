@@ -29,6 +29,10 @@ on:
         description: "The bucket is empty and this is the first publication (honored only when every object answers 404)"
         type: boolean
         default: false
+      expired_state:
+        description: "The served state has expired and this run replaces it: its '<sequence> <sha256 of the database>', from the log of the publication that signed it (docs/operations.md). Empty otherwise."
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -83,10 +87,13 @@ jobs:
       - name: Read what the repository serves
         env:
           FIRST: ${{ github.event_name == 'workflow_dispatch' && inputs.first_publication }}
+          # Somebody has to name the state, by hand: a scheduled run never publishes over an expired one.
+          EXPIRED: ${{ github.event_name == 'workflow_dispatch' && inputs.expired_state || '' }}
         run: |
           set -euo pipefail
           args=()
           [ "$FIRST" != true ] || args+=(--first-publication)
+          [ -z "$EXPIRED" ] || args+=(--expired-state "$EXPIRED")
           bash scripts/metadata/read-served.sh --url "$ARCHIVE_URL" --out "$RUNNER_TEMP/served" "${args[@]}"
       - name: Admit the latest release of each product
         env:

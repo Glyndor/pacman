@@ -110,7 +110,8 @@ rm "$FAKE_BUCKET/arch/x86_64/glyndor.db.sig"; : > "$FAKE_LOG"
 check "an object that is gone, where there was a previous one: refused" "1 0" "$(rc_of restore "$V1PREV" "$T" --if-mixed) $(changes)"
 at_v1
 cut_after "$V1PREV" "$T1" glyndor.db
-V2T="$T"; signed "$WORK/pk2" "$V1PREV" "$T1"; THIRD="$T"
+# Another instant than V2: signed from the same inputs at the same one, the third state would be V2 itself.
+V2T="$T"; signed "$WORK/pk2" "$V1PREV" "2026-11-24T06:00:01Z"; THIRD="$T"
 cp "$THIRD/arch/x86_64/glyndor.state" "$FAKE_BUCKET/arch/x86_64/glyndor.state"
 cp "$THIRD/arch/x86_64/glyndor.state.sig" "$FAKE_BUCKET/arch/x86_64/glyndor.state.sig"; : > "$FAKE_LOG"
 check "a state signed by the repository that is of neither generation: refused" "1 0" \

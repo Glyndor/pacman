@@ -184,6 +184,13 @@ tests/metadata/read-served.test.sh
 	tests/metadata/**
 	tests/fixtures/pacman/**
 
+tests/metadata/check-state-floor.test.sh
+	scripts/metadata/**
+	scripts/sign/**
+	keyring/**
+	tests/metadata/**
+	tests/fixtures/pacman/**
+
 # The tool-version watcher reads the pins from the two reusables that carry
 # them, and every workflow for a caller that would override them.
 
