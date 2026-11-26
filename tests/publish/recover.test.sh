@@ -50,12 +50,14 @@ cut_after() { # <previous dir> <now> <name>: the upload of $T, killed once that 
 	{ FAKE_DIE_AFTER="arch/x86_64/$3" setsid --wait bash -c 'FAKE_DIE_GROUP=$$ exec bash "$@"' cut "$HERE/scripts/publish/sync-archive.sh" \
 		--tree "$T" --previous "$1" --public-key "$WORK/key/pub.asc" --bucket glyndor-pacman --now "$2" > "$WORK/cut.out" 2>&1 || true; } 2> /dev/null
 }
-recover() { # <previous dir> <now>
-	bash "$SCRIPT" --tree "$T" --previous "$1" --public-key "$WORK/key/pub.asc" --bucket glyndor-pacman --url "$URL" --now "$2"
+echo none > "$WORK/floor-none"
+recover() { # <previous dir> <now> [options]
+	bash "$SCRIPT" --tree "$T" --previous "$1" --public-key "$WORK/key/pub.asc" --bucket glyndor-pacman --url "$URL" \
+		--floor "${FLOOR:-$WORK/floor-none}" --now "$2" "${@:3}"
 }
 served() { # <now>: whether the next publication can read what is served
 	rm -rf "$WORK/read"
-	bash "$HERE/scripts/metadata/read-served.sh" --url "$URL" --out "$WORK/read" --key "$WORK/key/pub.asc" --now "$1" > /dev/null 2>&1 && echo yes || echo no
+	bash "$HERE/scripts/metadata/read-served.sh" --url "$URL" --out "$WORK/read" --key "$WORK/key/pub.asc" --floor "$WORK/floor-none" --now "$1" > /dev/null 2>&1 && echo yes || echo no
 }
 rc_of() { local rc=0; "$@" > "$WORK/last.out" 2>&1 || rc=$?; echo "$rc"; }
 says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
@@ -92,8 +94,44 @@ check "a third content fails the recovery, with nothing written and the edge not
 
 at_v1
 cut_after "$V1PREV" "$T1" glyndor.db
-check "a repository that still cannot be read after the restore fails the recovery" "1" "$(rc_of recover "$V1PREV" 2027-03-01T00:00:00Z)"
+check "a repository that still cannot be read after the restore fails the recovery" "1" "$(rc_of recover "$V1PREV" 2026-11-01T00:00:00Z)"
 check "after the attempts it is given" "1" "$(says 'still does not hold together')"
+
+record() { printf '%s %s\n' "$1" "$2" > "$WORK/floor"; }
+at_v1
+cut_after "$V1PREV" "$T1" glyndor.db
+record 1 "$V1DB"
+check "a recovery after the previous state expired puts it back when it is the recorded one" "0 yes" \
+	"$(FLOOR="$WORK/floor" rc_of recover "$V1PREV" 2027-03-01T00:00:00Z) $([ "$(db)" = "$V1DB" ] && echo yes || echo no)"
+at_v1
+cut_after "$V1PREV" "$T1" glyndor.db
+: > "$FAKE_LOG"
+check "an expired previous state that is neither recorded nor named is not put back: nothing written, the edge not told" "1 0 0" \
+	"$(rc_of recover "$V1PREV" 2027-03-01T00:00:00Z) $(grep -c . "$FAKE_LOG" || true) $(posts)"
+check "and says why" "1" "$(says 'neither the recorded one nor the one named')"
+check "naming another is not enough" "1 0" \
+	"$(rc_of recover "$V1PREV" 2027-03-01T00:00:00Z --expired-state "1 $(printf '%064d' 0)") $(grep -c . "$FAKE_LOG" || true)"
+check "naming it puts it back" "0 yes" \
+	"$(rc_of recover "$V1PREV" 2027-03-01T00:00:00Z --expired-state "1 $V1DB") $([ "$(db)" = "$V1DB" ] && echo yes || echo no)"
+at_v1
+cut_after "$V1PREV" "$T1" glyndor.state.sig
+check "a dead run that had written the new group whole is recovered with an expired previous state, which is not read" "0" \
+	"$(rc_of recover "$V1PREV" 2026-12-07T06:30:00Z --expired-state "1 $V1DB")"
+check "an --expired-state that is no state" "2" "$(rc_of recover "$V1PREV" "$T1" --expired-state yes)"
+
+at_v1
+cut_after "$V1PREV" "$T1" glyndor.db
+record 2 "$V1DB"; : > "$FAKE_LOG"
+check "a previous repository older than the recorded one is not put back: nothing written, the edge not told" "1 0 0" \
+	"$(FLOOR="$WORK/floor" rc_of recover "$V1PREV" "$T1") $(grep -c . "$FAKE_LOG" || true) $(posts)"
+check "and says why" "1" "$(says 'is not one to put back')"
+
+rm -rf "$WORK/bucket/arch" "$WORK/bucket/.meta" "$WORK/state/requests.log"
+signed "$WORK/pk1" "$WORK/first" "$T0"
+cut_after "$WORK/first" "$T0" glyndor.db
+: > "$FAKE_LOG"
+check "a first publication is not removed once a state is recorded" "1 0" \
+	"$(FLOOR="$WORK/floor" rc_of recover "$WORK/first" "$T0") $(grep -c . "$FAKE_LOG" || true)"
 
 rm -rf "$WORK/bucket/arch" "$WORK/bucket/.meta" "$WORK/state/requests.log"
 signed "$WORK/pk1" "$WORK/first" "$T0"

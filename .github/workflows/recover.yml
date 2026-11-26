@@ -11,6 +11,10 @@ on:
         description: "The id of the run of 'Publish pacman repository' that did not finish"
         required: true
         type: string
+      expired_state:
+        description: "Only when the previous state of that run has expired and is not the recorded one: its '<sequence> <sha256 of the database>' (docs/operations.md)"
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -75,7 +79,10 @@ jobs:
           AWS_DEFAULT_REGION: auto
           CF_TOKEN: ${{ secrets.GLYNDOR_CF_PURGE_TOKEN }}
           CF_ZONE: ${{ secrets.GLYNDOR_CF_ZONE_ID }}
+          EXPIRED: ${{ inputs.expired_state }}
         run: |
           set -euo pipefail
+          args=()
+          [ -z "$EXPIRED" ] || args+=(--expired-state "$EXPIRED")
           bash scripts/publish/recover.sh --tree "$RUNNER_TEMP/in/tree" --previous "$RUNNER_TEMP/in/served" \
-            --public-key keyring/glyndor-pacman-key.asc --bucket "$BUCKET" --url "$ARCHIVE_URL"
+            --public-key keyring/glyndor-pacman-key.asc --bucket "$BUCKET" --url "$ARCHIVE_URL" "${args[@]}"

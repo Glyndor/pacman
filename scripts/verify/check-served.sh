@@ -5,7 +5,7 @@
 # that database, every package listed served with the sha256 the database gives and a signature that verifies it, and the key served at the root
 # the one in this repository.
 #
-#   check-served.sh --url <base> [--key <file>] [--out <dir>] [--now <time>]
+#   check-served.sh --url <base> [--key <file>] [--out <dir>] [--floor <file>] [--now <time>]
 #
 # <dir> keeps what was read (served.tsv among it), for the checks that follow. This is what runs every six hours, and after
 # each publication, from a clean runner.
@@ -13,12 +13,13 @@ set -euo pipefail
 export LC_ALL=C
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-url="" key="$HERE/keyring/glyndor-pacman-key.asc" out="" now=""
+url="" key="$HERE/keyring/glyndor-pacman-key.asc" out="" now="" floor=""
 while [ "$#" -gt 0 ]; do
 	[ "$#" -ge 2 ] || { echo "::error::check-served.sh: $1 needs a value" >&2; exit 2; }
 	case "$1" in
 		--url) url="$2" ;;
 		--key) key="$2" ;;
+		--floor) floor="$2" ;;
 		--out) out="$2" ;;
 		--now) now="$2" ;;
 		*) echo "::error::check-served.sh: unknown option $1" >&2; exit 2 ;;
@@ -32,6 +33,7 @@ trap 'rm -rf "$work"' EXIT
 [ -n "$out" ] || out="$work/served"
 at=()
 [ -z "$now" ] || at=(--now "$now")
+[ -z "$floor" ] || at+=(--floor "$floor")
 bash "$HERE/scripts/metadata/read-served.sh" --url "$url" --out "$out" --key "$key" "${at[@]}"
 [ -s "$out/served.tsv" ] || { echo "::error::the repository serves no package" >&2; exit 1; }
 get_to() { curl --silent --location --proto '=https,http' --max-redirs 3 --connect-timeout 20 --max-time 300 --max-filesize 419430400 --output "$2" --write-out '%{http_code}' "$1" 2> /dev/null || echo 000; }

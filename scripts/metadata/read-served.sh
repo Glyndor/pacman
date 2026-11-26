@@ -2,7 +2,8 @@
 #
 # Read what the repository serves today, and trust none of it that is not signed.
 #
-#   read-served.sh --url <base> --out <dir> [--first-publication] [--key <file>] [--now <time>]
+#   read-served.sh --url <base> --out <dir> [--first-publication] [--expired-state "<sequence> <sha256>"] [--key <file>]
+#                  [--floor <file>] [--now <time>]
 #
 # <base> is https://pacman.glyndor.net (or, for the tests, http on the loopback). The database and the
 # state are fetched with a size cap and a time cap, each with its signature,
@@ -12,6 +13,15 @@
 # or <dir>/served.tsv empty and <dir>/no-state when the bucket is empty and the run says it is the
 # first publication.
 #
+# The served state is also compared with the one recorded in the repository (--floor, state-floor.txt): an earlier one,
+# however well signed, is refused, and so is a repository that answers nothing once a state is recorded.
+#
+# An expired state is refused. --expired-state names one state, by its sequence and the sha256 of its database: that
+# state, and no other, is read although it expired, so that somebody who established which one it should be can publish
+# over it, or recover to it. Naming a range would let any state signed since the record stand in for the newest. Given,
+# the served state has to be that one whether it expired or not. Everything else about it is checked the same, and what
+# clients are served is never judged with it.
+#
 # Nothing but "every object answers 404" reads as an empty repository, and only with
 # --first-publication: a database that goes missing, or answers an error, or has no state beside it,
 # would otherwise look like a first publication to a run that then overwrites a good repository.
@@ -19,7 +29,8 @@ set -euo pipefail
 export LC_ALL=C
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-url="" out="" first=no
+url="" out="" first=no expected=""
+floor="$HERE/scripts/metadata/state-floor.txt"
 key="$HERE/keyring/glyndor-pacman-key.asc"
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 while [ "$#" -gt 0 ]; do
@@ -31,13 +42,19 @@ while [ "$#" -gt 0 ]; do
 		--url) url="$2" ;;
 		--out) out="$2" ;;
 		--key) key="$2" ;;
+		--floor) floor="$2" ;;
+		--expired-state) expected="$2" ;;
 		--now) now="$2" ;;
 		*) echo "::error::read-served.sh: unknown option $1" >&2; exit 2 ;;
 	esac
 	shift 2
 done
 if [ -z "$url" ] || [ -z "$out" ]; then
-	echo "::error::usage: read-served.sh --url <base> --out <dir> [--first-publication]" >&2
+	echo "::error::usage: read-served.sh --url <base> --out <dir> [--first-publication] [--expired-state <state>]" >&2
+	exit 2
+fi
+if [ -n "$expected" ] && ! [[ "$expected" =~ ^[1-9][0-9]{0,11}\ [0-9a-f]{64}$ ]]; then
+	echo "::error::--expired-state takes '<sequence> <sha256 of the database>'" >&2
 	exit 2
 fi
 # Compared whole, never with a glob: https://x@evil.test and http://127.0.0.1:1@evil.test/ are not origins.
@@ -68,6 +85,13 @@ for name in "${names[@]}"; do
 	[ "${status[$name]}" = 404 ] && absent=$((absent + 1))
 done
 if [ "$absent" -eq "${#names[@]}" ]; then
+	# Once a state is recorded the repository has been served: answering nothing is it disappearing, not a first publication.
+	recorded=0
+	[ -f "$floor" ] && [ "$(grep -vE '^[[:space:]]*(#|$)' "$floor")" = none ] || recorded=1
+	if [ "$first" = yes ] && [ "$recorded" = 1 ]; then
+		echo "::error::the repository answers 404 everywhere and $floor does not say that nothing was published; refusing to publish from nothing" >&2
+		exit 1
+	fi
 	if [ "$first" = yes ]; then
 		: > "$out/served.tsv"
 		: > "$out/no-state"
@@ -100,7 +124,21 @@ cmp -s "$out/glyndor.db" "$out/glyndor.db.tar.zst" \
 cmp -s "$out/glyndor.db.sig" "$out/glyndor.db.tar.zst.sig" \
 	|| { echo "::error::the served glyndor.db.sig is not the signature of glyndor.db.tar.zst that verifies; the served repository is not sound" >&2; exit 1; }
 rm -f "$out/glyndor.db" "$out/glyndor.db.sig"
-python3 -I "$HERE/scripts/metadata/dbtool.py" state-check "$out/glyndor.state" --db "$out/glyndor.db.tar.zst" --now "$now"
+rc=0
+bash "$HERE/scripts/metadata/check-state-floor.sh" "$out/glyndor.state" "$out/glyndor.db.tar.zst" "$floor" || rc=$?
+[ "$rc" -eq 0 ] || [ "$rc" -eq 4 ] || exit 1
+replace=()
+sequence="$(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$out/glyndor.state" sequence)"
+digest="$(sha256sum "$out/glyndor.db.tar.zst" | cut -d' ' -f1)"
+if [ -n "$expected" ]; then
+	[ "$sequence $digest" = "$expected" ] \
+		|| { echo "::error::the served state is '$sequence $digest' and the one asked for is '$expected'" >&2; exit 1; }
+	replace=(--to-replace)
+fi
+if ! python3 -I "$HERE/scripts/metadata/dbtool.py" state-check "$out/glyndor.state" --db "$out/glyndor.db.tar.zst" --now "$now" "${replace[@]}"; then
+	echo "the served state is '$sequence $digest'; docs/operations.md says when an expired one may be published over" >&2
+	exit 1
+fi
 python3 -I "$HERE/scripts/metadata/dbtool.py" entries "$out/glyndor.db.tar.zst" > "$work/entries.tsv"
 awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" $3 }' "$work/entries.tsv" > "$out/served.tsv"
 mv "$out/glyndor.state" "$out/state"

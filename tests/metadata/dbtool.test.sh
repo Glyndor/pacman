@@ -204,6 +204,12 @@ check "a state that was just made is valid" "0" "$(rc_of tool state-check "$WORK
 check "it is valid until the last second before it expires" "0" "$(rc_of tool state-check "$WORK/state1" --db "$WORK/db.tar.zst" --now 2026-12-07T05:59:59Z)"
 check "and not at the second it expires" "1" "$(rc_of tool state-check "$WORK/state1" --db "$WORK/db.tar.zst" --now 2026-12-07T06:00:00Z)"
 check "and says it expired" "1" "$(says 'expired')"
+check "an expired state passes when it is read to be replaced, and says it expired" "0 1" \
+	"$(rc_of tool state-check "$WORK/state1" --db "$WORK/db.tar.zst" --now 2027-03-01T00:00:00Z --to-replace) $(says '::warning::state 1 expired at')"
+check "a state that is to be replaced still has to be about this database" "1" \
+	"$(rc_of tool state-check "$WORK/state1" --db "$WORK/db-extra.tar.zst" --now 2027-03-01T00:00:00Z --to-replace)"
+check "and one from the future is refused with the option too" "1" \
+	"$(rc_of tool state-check "$WORK/state1" --db "$WORK/db.tar.zst" --now 2026-11-23T05:50:00Z --to-replace)"
 check "a state from the future (more than five minutes) is refused" "1" "$(rc_of tool state-check "$WORK/state1" --db "$WORK/db.tar.zst" --now 2026-11-23T05:50:00Z)"
 check "and says so" "1" "$(says 'in the future')"
 check "a state a minute ahead of the clock is tolerated" "0" "$(rc_of tool state-check "$WORK/state1" --db "$WORK/db.tar.zst" --now 2026-11-23T05:59:00Z)"

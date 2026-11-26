@@ -39,9 +39,10 @@ SERVER=$!
 trap 'kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
 until curl --silent --max-time 2 "http://127.0.0.1:$PORT/" > /dev/null 2>&1; do sleep 0.2; done
 URL="http://127.0.0.1:$PORT"
+echo none > "$WORK/floor-none"
 read_it() { # [options]: the result is in $WORK/out
 	rm -rf "$WORK/out"
-	bash "$SCRIPT" --url "$URL" --out "$WORK/out" --key "${PUB:-$WORK/key/pub.asc}" --now "${AT:-$NOW}" "$@"
+	bash "$SCRIPT" --url "$URL" --out "$WORK/out" --key "${PUB:-$WORK/key/pub.asc}" --floor "${FLOOR:-$WORK/floor-none}" --now "${AT:-$NOW}" "$@"
 }
 rc_of() { local rc=0; "$@" > "$WORK/last.out" 2>&1 || rc=$?; echo "$rc"; }
 says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
@@ -89,7 +90,7 @@ publish "$WORK/site" "$WORK/other"
 check "a repository whose own key is another one is refused with the key of this repository" "1" "$(rc_of read_it)"
 rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
 check "a state that has expired" "1" "$(AT=2026-12-08T00:00:00Z rc_of read_it)"
-check "and says so" "1" "$(says 'expired')"
+check "and says so" "1" "$(says 'the state expired at')"
 check "a state from the future" "1" "$(AT=2026-11-22T00:00:00Z rc_of read_it)"
 rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
 cp "$D/glyndor.state" "$WORK/state-keep"; cp "$D/glyndor.state.sig" "$WORK/state-sig-keep"
@@ -100,6 +101,81 @@ cp "$WORK/site-new/arch/x86_64/glyndor.state" "$D/glyndor.state"; cp "$WORK/site
 check "a good state of another database laid over this one" "1" "$(rc_of read_it)"
 check "and says that it is about another database" "1" "$(says 'another database')"
 rm -f "$WORK/pk/zed-1.0.0-1-any.pkg.tar.zst"
+rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
+
+echo "-- the recorded state, which the bucket cannot change"
+# Three publications one after another, each kept whole: what a bucket writer could serve again.
+pub_n() { # <n> <served dir> <now> <extra package version>
+	python3 -I "$FIXTURES/mkpkg.py" "$WORK/chain-pk/zed-$4-1-any.pkg.tar.zst" zed "$4-1" any
+	make_tree "$WORK/c$1" "$WORK/chain-pk"/*.pkg.tar.zst
+	GLYNDOR_PACMAN_GPG_PRIVATE_KEY="$(cat "$WORK/key/secret.asc")" bash "$HERE/scripts/sign/sign-tree.sh" --tree "$WORK/c$1" \
+		--manifest "$WORK/c$1.manifest" --pkginfo "$WORK/c$1.pkginfo.json" --served "$2" --public-key "$WORK/key/pub.asc" \
+		--fingerprint "$(cat "$WORK/key/fpr")" --now "$3" > /dev/null
+	mkdir -p "$WORK/s$1"
+	cp "$WORK/c$1/arch/x86_64/glyndor.db.tar.zst" "$WORK/c$1/arch/x86_64/glyndor.db.tar.zst.sig" "$WORK/s$1/"
+	cp "$WORK/c$1/arch/x86_64/glyndor.state" "$WORK/s$1/state"; cp "$WORK/c$1/arch/x86_64/glyndor.state.sig" "$WORK/s$1/state.sig"
+	python3 -I "$HERE/scripts/metadata/dbtool.py" entries "$WORK/s$1/glyndor.db.tar.zst" | awk -F'\t' '{ print $1 "\t" $2 "\t" $5 "\t" $3 }' > "$WORK/s$1/served.tsv"
+	rm -f "$WORK/chain-pk"/zed-*
+}
+serve() { rm -rf "$WORK/site"; mkdir -p "$WORK/site"; cp -r "$WORK/c$1/arch" "$WORK/site/"; }
+record() { printf '# recorded\n%s %s\n' "$1" "$(sha256sum "$WORK/c$2/arch/x86_64/glyndor.db.tar.zst" | cut -d' ' -f1)" > "$WORK/floor"; }
+mkdir -p "$WORK/chain-pk"; cp "$WORK/pk/acme-1.2.3-1-x86_64.pkg.tar.zst" "$WORK/chain-pk/"
+pub_n 1 "$WORK/first" "$NOW" 1.0.0
+pub_n 2 "$WORK/s1" "2026-11-24T06:00:00Z" 1.1.0
+pub_n 3 "$WORK/s2" "2026-11-25T06:00:00Z" 1.2.0
+id_of() { echo "$1 $(sha256sum "$WORK/c$1/arch/x86_64/glyndor.db.tar.zst" | cut -d' ' -f1)"; }
+export FLOOR="$WORK/floor"; record 3 3
+serve 1
+check "an earlier state, signed and still current, served after newer publications is refused" "1" "$(AT=2026-11-26T00:00:00Z rc_of read_it)"
+check "and says that an earlier repository was put back" "1" "$(says 'an earlier signed repository was put back')"
+check "the same one, expired, is refused to be published over too" "1 1" \
+	"$(AT=2027-03-01T00:00:00Z rc_of read_it --expired-state "$(id_of 3)") $(says 'an earlier signed repository was put back')"
+serve 2
+check "the one just before the recorded one is refused" "1" "$(AT=2026-11-26T00:00:00Z rc_of read_it)"
+serve 3
+check "the recorded one is read" "0" "$(AT=2026-11-26T00:00:00Z rc_of read_it)"
+check "and expired it is refused when nobody asked to publish over it" "1 1" "$(AT=2027-03-01T00:00:00Z rc_of read_it) $(says 'the state expired at')"
+check "and read to be published over when somebody did, with a warning" "0 1" \
+	"$(AT=2027-03-01T00:00:00Z rc_of read_it --expired-state "$(id_of 3)") $(says '::warning::state 3 expired at')"
+check "and what is served is what the next publication starts from" "3 2" \
+	"$(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$WORK/out/state" sequence) $(wc -l < "$WORK/out/served.tsv" | tr -d ' ')"
+check "a state from the future is refused to be published over too" "1" "$(AT=2026-11-22T00:00:00Z rc_of read_it --expired-state "$(id_of 3)")"
+# A state between the recorded one and the newest: not older than the record, and expired. Only naming it takes it.
+record 1 1
+serve 2
+check "an expired state between the record and the newest is refused when the newest is the one asked for" "1 1" \
+	"$(AT=2027-03-01T00:00:00Z rc_of read_it --expired-state "$(id_of 3)") $(says 'and the one asked for is')"
+check "and when nothing is asked for" "1 1" "$(AT=2027-03-01T00:00:00Z rc_of read_it) $(says 'the state expired at')"
+check "it says which state is served" "1" "$(says "the served state is '$(id_of 2)'")"
+check "naming it takes it, whoever named it answering for it" "0" "$(AT=2027-03-01T00:00:00Z rc_of read_it --expired-state "$(id_of 2)")"
+check "the right sequence with another database is refused" "1" \
+	"$(AT=2027-03-01T00:00:00Z rc_of read_it --expired-state "2 $(printf '%064d' 0)")"
+check "a state that has not expired still has to be the one named" "1" "$(AT=2026-11-26T00:00:00Z rc_of read_it --expired-state "$(id_of 3)")"
+serve 3
+record 2 2
+check "a state newer than the recorded one is read, and the run says to record it" "0 1" \
+	"$(AT=2026-11-26T00:00:00Z rc_of read_it) $(says 'record it so that it cannot be taken back')"
+record 3 2
+check "a state of the recorded sequence with another database is refused" "1 1" \
+	"$(AT=2026-11-26T00:00:00Z rc_of read_it) $(says 'its database is not the recorded one')"
+export FLOOR="$WORK/floor-none"
+check "with nothing recorded an expired state is refused unless it is named" "1" "$(AT=2027-03-01T00:00:00Z rc_of read_it)"
+check "and read when it is" "0" "$(AT=2027-03-01T00:00:00Z rc_of read_it --expired-state "$(id_of 3)")"
+for bad in true "3" "3 abc" "$(id_of 3) x" "0 $(printf '%064d' 0)"; do
+	check "--expired-state as '${bad:0:12}' is refused" "2" "$(rc_of read_it --expired-state "$bad")"
+done
+for bad in "" "three $(printf '%064d' 0)" "3 abc" "$(printf 'none\nnone')" "0 $(printf '%064d' 0)"; do
+	printf '%s\n' "$bad" > "$WORK/floor-bad"
+	check "a record that is '${bad:0:12}' is refused" "1 1" "$(FLOOR="$WORK/floor-bad" AT=2026-11-26T00:00:00Z rc_of read_it) $(says 'does not hold exactly one line')"
+done
+check "a record that is not there is refused" "1 1" "$(FLOOR="$WORK/nowhere" AT=2026-11-26T00:00:00Z rc_of read_it) $(says 'is not a readable regular file')"
+rm -rf "$WORK/site/arch"; export FLOOR="$WORK/floor"; record 3 3
+check "once a state is recorded, a repository that answers nothing is not a first publication" "1 1" \
+	"$(rc_of read_it --first-publication) $(says 'does not say that nothing was published')"
+unset FLOOR
+# shellcheck disable=SC2016 # the line of the script is looked for as text
+check "the record read when none is given is the one of the repository" "1" \
+	"$(grep -c '^floor="$HERE/scripts/metadata/state-floor.txt"$' "$SCRIPT")"
 rm -rf "$WORK/site"; cp -r "$WORK/site-good" "$WORK/site"
 
 echo "-- the address and the options"

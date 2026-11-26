@@ -8,7 +8,8 @@ yet: the daily run is added by the pull request of the first publication, togeth
 with the watcher of that cron.
 
 The input `first_publication` is for an empty bucket only, and it is honoured
-only when every object answers 404.
+only when every object answers 404 and no state is recorded. The input
+`expired_state` is described under the recorded state, below.
 
 ## The jobs of a publication
 
@@ -52,10 +53,34 @@ the run and the date the artifacts expire, 14 days after the run.
    Then start a new publication.
 
 When it refuses because an object is neither, something else wrote to the bucket:
-find out what before anything is written. The read of step 3 refuses a state that
-has expired, so when the previous publication is older than the 14 days its state
-lasts, the previous group is put back and the run still fails. Once the artifacts
+find out what before anything is written. It also writes nothing when the previous
+repository of the run is older than the recorded state (below). Once the artifacts
 have expired this way back is gone.
+
+## The recorded state, and an expired one
+
+A signature says who wrote a state, not that it is the newest: whoever can write the
+bucket can serve an earlier one again. `scripts/metadata/state-floor.txt` records, in
+this repository, the sequence and the database of the newest state known to have been
+served, and every read of the served repository refuses an earlier one, or none at
+all. It says `none` until the first publication. Record the state a publication
+signed, in a pull request, once it is served: the file protects up to what it records,
+and a read of a newer state says so.
+
+A state lasts 14 days, and every read refuses an expired one. To publish over it:
+
+1. Take its sequence and the sha256 of its database from the line
+   `the state published:` in the log of the publication that signed it, or from
+   `state-floor.txt` when that records it. Not from what is served: the log and the
+   file are what the bucket cannot change.
+2. Run `publish.yml` by hand with `expired_state` set to those two, separated by a
+   space. That state and no other is read; its signature and database are checked as
+   ever, it may not be older than the recorded one, and the upload writes only if the
+   bucket still holds it byte for byte.
+
+A recovery whose previous state has expired takes the same input in `recover.yml`,
+unless that state is the recorded one. A scheduled run never accepts an expired state,
+and neither do `verify` and `verify-live.yml`.
 
 ## The other workflows
 
