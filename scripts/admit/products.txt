@@ -16,7 +16,7 @@
 # A repository that has no package of this file in its latest release is skipped with a notice
 # while none of its packages is served; once one is served, its absence stops the publication.
 # That is how helmly and epistle-panel are ready before they publish: the day their release
-# carries the packages (contrato-productos.md) they are served, with no change here.
+# carries the packages (docs/product-contract.md) they are served, with no change here.
 #
 # What a product has to attach to its release is docs/product-contract.md.
 podman	podman	x86_64	netavark,aardvark-dns,netavark=2.1.0,aardvark-dns=2.1.0,podman-remote,container-network-stack,container-network-stack=2

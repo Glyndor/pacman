@@ -32,7 +32,7 @@ check "the README writes pacman -Sy once, in the sentence that says it fails" "1
 check "it names pacman -Sy only to say that it fails" "1" "$(grep -c '`pacman -Sy podup` on its own would be a partial upgrade' "$README")"
 check "the installer URL of the README is the path the installer is served under" "1" "$(grep -c '^curl -fsSL https://pacman.glyndor.net/install/podup | sudo sh$' "$README")"
 check "and its product is a package of the products file" "1" "$(grep -c '^[a-z-]*	podup	' "$HERE/scripts/admit/products.txt")"
-for package in podman podup epistle helmly-agent helmly epistle-panel; do
+for package in podman podman-docker podup epistle helmly-agent helmly epistle-panel; do
 	check "the README names $package, which the products file declares" "2" "$(grep -c -e "	$package	" -e "\`$package\`" "$README" "$HERE/scripts/admit/products.txt" | awk -F: '{ s += ($2 > 0) } END { print s }')"
 done
 check "the key address of the README is the one the installer downloads" "1" "$(grep -c '"$BASE/glyndor-pacman-key.asc"' "$TEMPLATE")"
@@ -41,6 +41,7 @@ check "the README says that the install upgrades the system" "1" "$(grep -c 'upg
 check "it says that aarch64 is not built, and why" "1" "$(grep -c 'no official `aarch64` port' "$README")"
 check "it says that no pacman client checks a post-quantum signature" "1" "$(grep -c 'No pacman client checks a post-quantum signature' "$README")"
 check "it says why the block goes before [core], and the way out" "2" "$(grep -c -e 'first repository that has it' -e 'IgnorePkg' "$README")"
+check "the README links the guide of the operations, which exists" "1" "$(grep -c '(docs/operations.md)' "$README")"
 check "it has no personal path and no address of a machine" "0" "$(grep -c -e '/home/' -e '192\.168\.' "$README" || true)"
 
 finish

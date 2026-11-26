@@ -8,7 +8,8 @@ Glyndor products as signed packages, for `x86_64`.
 ## Install
 
 Take `podup` as the example; the same line works for each package the repository carries
-(`podman`, `podup`, `epistle`, `helmly-agent`, and `helmly` and `epistle-panel` once they publish one).
+(`podman`, `podman-docker`, `podup`, `epistle`, `helmly-agent`, and `helmly` and `epistle-panel` once they publish
+one).
 
 ```sh
 curl -fsSL https://pacman.glyndor.net/install/podup | sudo sh
@@ -62,8 +63,9 @@ The tests of this repository fail if the key in `keyring/` is not the one writte
   to win over the one in `extra`, and a name this repository carries is taken from here until you say otherwise. To leave a
   package to Arch, add it to `IgnorePkg` in `/etc/pacman.conf`. When Arch is newer than this repository for a package it
   carries, a check of this repository fails and the owner is told; pacman itself does not.
-- **Only `x86_64`.** Arch Linux has no official `aarch64` port (Arch Linux ARM is another distribution with other
-  repositories), so nothing is built or tested for it.
+- **Only `x86_64` hosts.** Arch Linux has no official `aarch64` port (Arch Linux ARM is another distribution with other
+  repositories), so nothing is built or tested for it. A package of architecture `any` is served from the same
+  directory as the others.
 - **No pacman client checks a post-quantum signature.** Releases of the products are signed twice when the second key exists
   and the repository checks both before it admits a package, but the signature pacman checks on your machine is the Ed25519 one
   above. This is a limit of pacman and GnuPG today.
@@ -76,7 +78,8 @@ The tests of this repository fail if the key in `keyring/` is not the one writte
 ## Contributing
 
 The guide is in [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests are invitation-only; issues are open to everyone. What a
-product has to attach to its release is in [docs/product-contract.md](docs/product-contract.md).
+product has to attach to its release is in [docs/product-contract.md](docs/product-contract.md). How the repository
+publishes itself, and what each workflow does, is in [docs/operations.md](docs/operations.md).
 
 ## License
 

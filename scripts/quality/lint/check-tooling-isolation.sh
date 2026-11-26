@@ -55,7 +55,7 @@
 # is. The residual is the one the standard already accepts for a secret held
 # by a later step: a hostile package can alter the workspace a later step then
 # runs. This check does not claim more than that, and neither does
-# docs/threat-model.md.
+# the standard of the organisation.
 #
 # reusable-workflow-lint.yml runs this when its `tooling-isolation` input is
 # on, which is the default. python3 runs isolated (-I): the pull request

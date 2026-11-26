@@ -25,9 +25,10 @@ marks as latest, which is never a pre-release. For each package the product ship
   `keyring/glyndor-release-ed25519.b64`, and are checked by `scripts/admit/verify-sig.py`. The product does not
   sign with an OpenPGP key: the channel signs the package when it admits it.
 - Every asset above, signatures included, carries a provenance attestation (`actions/attest-build-provenance`).
-  The channel runs `gh attestation verify` on each package with `--repo Glyndor/<product>`, the signing workflow
+  The channel runs `gh attestation verify` on each **package** with `--repo Glyndor/<product>`, the signing workflow
   named in `scripts/admit/signer-workflows.txt`, `--source-ref refs/tags/<tag>`, `--source-digest` of the commit the
   tag points at, and `--deny-self-hosted-runners`: an attestation of another release of the same product does not pass.
+  The attestation of a signature is not verified, so a release whose `.sig` carries none is still admitted.
 - The release carries no other asset that ends in `.pkg.tar.zst`, `.pkg.tar.zst.sig` or
   `.pkg.tar.zst.mldsa65.sig`, nor another `.pkg.tar.*` file, than the exact set above. An extra one, one of
   another version or architecture, or a name with `/`, `\`, `..` or a glob character makes the channel refuse the
@@ -47,7 +48,7 @@ It reads the file from the bytes the release key verified:
 | `packager` | exactly `Glyndor <noreply@glyndor.net>`; this is the vendor field of pacman |
 | `pkgbase` | absent, equal to `pkgname`, or the name of another package of the same product (`podman` for both members of the split package) |
 | `provides` | absent, or the package itself (with no version or with its own `<version>-1`), or a form its line of the products file lists letter for letter (`netavark=2.1.0`), or a listed name with no version or with the `<version>-1` of this very package; any other version of a name is refused (`docker=99.0`) |
-| `conflict`, `replaces` | absent, or the package itself, or a form its line of the products file lists letter for letter: a name, or a name with the one constraint listed (`netavark`, `netavark<1.14`); any other constraint is refused. The keys are spelled as `.PKGINFO` spells them (`conflict` in the singular) |
+| `conflict`, `replaces` | absent, or the package itself, or a form its line of the products file lists letter for letter: a name, or a name with the one constraint listed (`netavark`, `netavark<1.14`); any other constraint is refused. The keys are spelled as `.PKGINFO` spells them (`conflict` in the singular); `conflicts` is accepted as a synonym of `conflict` and is judged by the same rules |
 | `group` | absent, or a name its line of the products file lists |
 | `backup` | files of the package itself: a path with no leading `/` and no `..`, in a place the package may install |
 | `depend` | free, except that a dependency on another package of the same product is exactly `<name>=<pkgver>` of the same release (`podman-docker` depends on `podman=6.2.0+r12-1`); a dependency of another product on `podman` says `podman>=6.2.0` |
@@ -55,7 +56,7 @@ It reads the file from the bytes the release key verified:
 `.PKGINFO` is read strictly: every line is `key = value` or a `#` comment and the file ends with a line feed; no control
 character (NUL, tab, carriage return, vertical tab, form feed) is in it; the key is one of `pkgname`, `pkgbase`, `pkgver`,
 `pkgdesc`, `url`, `builddate`, `packager`, `size`, `arch`, `license`, `replaces`, `group`, `conflict`, `provides`, `backup`,
-`depend`, `optdepend`, `makedepend`, `checkdepend` or `xdata`, and any other key refuses the package; the names in the
+`depend`, `optdepend`, `makedepend`, `checkdepend`, `xdata` or `conflicts`, and any other key refuses the package; the names in the
 relation keys are package or soname names. The archive is read twice and the two readings must agree member by member (type, name, size, link target) and on
 the bytes of `.PKGINFO`: once by Python and once by `bsdtar`, the reader pacman uses, from the Arch image of
 `scripts/assemble/Dockerfile`. Only regular files, folders, symbolic links and hard links are admitted; a member
@@ -68,8 +69,11 @@ By default nothing: `scripts/admit/package-paths.txt` lists, for each package, t
 that no pattern of its line names refuses the whole release (the patterns are in the file; `*` is any characters inside
 a component, a trailing `/` is a folder and what is under it). Never allowed, whatever the file says, and a line that
 names one makes the file refuse to load: `etc/pacman.conf`, `etc/pacman.d`, `usr/share/pacman` (the keyrings),
-`usr/share/libalpm` (the hooks), `etc/sudoers*`, the users and passwords, the login and the loader, cron, udev rules,
-`etc/systemd`, `etc/ssh`. Units, sysusers and tmpfiles are allowed only under the name of the package. A symbolic or hard
+`usr/share/libalpm` (the hooks), `var/lib/pacman`, `etc/sudoers`, `etc/sudoers.d`, the users and passwords (`etc/passwd`,
+`etc/shadow`, `etc/group`, `etc/gshadow`), the login and the loader (`etc/pam.d`, `etc/ld.so.conf`, `etc/ld.so.conf.d`,
+`etc/profile`, `etc/profile.d`), cron (`etc/cron.d`, `etc/crontab`, `etc/cron.daily`, `etc/cron.hourly`, `etc/cron.weekly`,
+`etc/cron.monthly`), udev rules (`usr/lib/udev/rules.d`, `etc/udev`), `usr/lib/modprobe.d`, `etc/modprobe.d`, `etc/systemd`,
+`etc/ssh` and `boot`. Units, sysusers and tmpfiles are allowed only under the name of the package. A symbolic or hard
 link may point only at a place its package may install (or at one the line marks with `>` for a file that the other
 package of the same release installs), with the target resolved, so `..` and an absolute target that lead anywhere else are
 refused; the links are read strictly (no `..` after a name, no `.` or `..` in an absolute target, no member inside a link of the
@@ -84,7 +88,7 @@ not yet been measured against a real release of each product.
 
 Also required: one `.PKGINFO` among the leading dot entries, before the first ordinary entry, a regular file of at most 64 KiB; no member with an absolute name, a `..`
 component or a device node; no hard link out of the tree. An `.INSTALL` is code that pacman runs as root
-on the host, so it is not carried freely: the channel admits it only when the SHA-256 of its exact bytes is listed for the package in
+on the host, so it is not carried freely: the channel admits it only when it is at most 256 KiB and the SHA-256 of its exact bytes is listed for the package in
 `scripts/admit/package-scriptlets.txt` (package, hash, reason, in a reviewed change); a package with no line cannot carry one, and a
 hash that is not listed refuses the release and is printed so that it can be read and added. Both readers read it and have to give the
 same bytes. The list is empty today. Prefer `sysusers.d` and `tmpfiles.d` over scripts that create users. No other entry that
