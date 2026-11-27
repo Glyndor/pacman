@@ -12,6 +12,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$HERE/tests/fixtures/pacman/lib.sh"
 # shellcheck disable=SC1091 # the shared fixtures
 . "$HERE/tests/fixtures/pacman/repo.sh"
+# The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
+# closed on the way out, and none of them is left running.
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
+close_agents() {
+	local dir
+	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
+		[ -d "$dir" ] || continue
+		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+	done
+}
 SCRIPT="$HERE/scripts/publish/recover.sh"
 make_gpg_key "$WORK/key"
 FPR="$(cat "$WORK/key/fpr")"
@@ -22,7 +33,7 @@ export AWS_ACCESS_KEY_ID=id AWS_SECRET_ACCESS_KEY=secret AWS_ENDPOINT_URL=https:
 export FAKE_BUCKET="$WORK/bucket" FAKE_LOG="$WORK/log"
 python3 -I "$FIXTURES/server.py" "$WORK/bucket" "$WORK/port" --state "$WORK/state" &
 SERVER=$!
-trap 'kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
+trap 'close_agents; kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
 until [ -s "$WORK/port" ]; do sleep 0.1; done
 CF_API="http://127.0.0.1:$(cat "$WORK/port")"
 export CF_API CF_ZONE=0123456789abcdef0123456789abcdef CF_TOKEN=token0123456789
@@ -147,5 +158,12 @@ check "a purge that cannot be made fails the recovery" "1 1" "$rc $(says 'CF_TOK
 check "an option that is not known" "2" "$(rc_of bash "$SCRIPT" --nope x)"
 check "an option with no value" "2" "$(rc_of bash "$SCRIPT" --tree)"
 check "a missing option" "2" "$(rc_of bash "$SCRIPT" --tree "$T")"
+
+at_v1
+cut_after "$V1PREV" "$T1" glyndor.db
+check "a recovery that leaves an expired state succeeds" "0" \
+	"$(rc_of recover "$V1PREV" 2027-03-01T00:00:00Z --expired-state "1 $V1DB")"
+check "and says that the state it left expired" "1" "$(says 'holds a state that expired at')"
+check "and gives the values the next publication needs" "1" "$(says "the state published: 1 $V1DB")"
 
 finish

@@ -14,6 +14,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck disable=SC1091 # the shared fixtures
 . "$HERE/tests/fixtures/pacman/repo.sh"
 SCRIPT="$HERE/scripts/publish/sync-archive.sh"
+# The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
+# closed on the way out, and none of them is left running.
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
+close_agents() {
+	local dir
+	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
+		[ -d "$dir" ] || continue
+		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+	done
+}
+trap 'close_agents; rm -rf "$WORK"' EXIT
 make_gpg_key "$WORK/key"
 FPR="$(cat "$WORK/key/fpr")"
 mkdir -p "$WORK/bin" "$WORK/pk1" "$WORK/pk2" "$WORK/first"

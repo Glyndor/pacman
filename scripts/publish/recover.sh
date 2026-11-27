@@ -81,6 +81,12 @@ attempts="${VERIFY_ATTEMPTS:-6}"
 for attempt in $(seq 1 "$attempts"); do
 	if bash "$HERE/scripts/metadata/read-served.sh" "${read_args[@]}" --out "$work/served$attempt"; then
 		echo "recovered: the repository served at $url holds together"
+		until_left="$(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$work/served$attempt/state" valid-until)" || until_left=""
+		if [ -n "$until_left" ] && ! [[ "$until_left" > "${now:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" ]]; then
+			echo "::warning::the repository served at $url holds a state that expired at $until_left"
+			echo "the state published: $(python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$work/served$attempt/state" sequence) $(sha256sum "$work/served$attempt/glyndor.db.tar.zst" | cut -d' ' -f1)"
+			echo "the next publication needs that state as expired_state, or nothing can be published over it"
+		fi
 		exit 0
 	fi
 	[ "$attempt" -ge "$attempts" ] || sleep "${VERIFY_DELAY:-10}"
