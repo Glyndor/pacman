@@ -121,6 +121,13 @@ check "a retired object whose size cannot be read is counted as such, and the cl
 	"$(cleanup "$T2" > "$WORK/last.out" 2>&1; echo "$? $(says '(1 object(s) whose size could not be read)')")"
 printf x > "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig"
 check "the current package is still there" "yes" "$([ -f "$FAKE_BUCKET/arch/x86_64/acme-1.2.3-1-x86_64.pkg.tar.zst" ] && echo yes || echo no)"
+# Weeks after its delete-after time, the file is still in the bucket and the publication of that day still counts it.
+V3PREV="$PREV"; T3="2027-01-20T06:00:00Z"
+signed "$WORK/pk2" "$V3PREV" "$T3"
+check "a publication two months later" "0" "$(rc_of sync "$V3PREV" "$T3")"
+kept_bytes=$(($(stat -c %s "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst") + $(stat -c %s "$FAKE_BUCKET/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig")))
+check "its cleanup still counts the package retired two months before, and its bytes" "0 1" \
+	"$(cleanup "$T3" > "$WORK/last.out" 2>&1; echo "$? $(says "::warning::1 retired package file(s) are kept in the bucket, $kept_bytes bytes")")"
 
 echo "-- refused before a byte is written"
 rm -rf "$FAKE_BUCKET"; cp -r "$WORK/bucket-v1" "$FAKE_BUCKET"; : > "$FAKE_LOG"
