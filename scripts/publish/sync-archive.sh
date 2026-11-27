@@ -18,7 +18,8 @@
 # previous repository or the one of the tree that was being written (--tree, verified the same way): any mixture of the two,
 # which is what a publication that died between two writes leaves, and nothing else. With --if-mixed it writes only when the
 # group is a mixture, and leaves a group that is one of the two whole: that is how a later run puts back what a dead one left
-# without taking a finished publication back.
+# without taking a finished publication back. Which of the two it left is printed on a line of its own, `held=previous` or
+# `held=new`, which recover.sh reads; the sentence after it is for a person.
 #
 # Before anything is written, and again before the database group, the state that the bucket serves NOW is read and has to be
 # exactly the one the run was built on (--previous), absent only when there was none, and the new sequence is that one plus one:
@@ -354,6 +355,7 @@ check_group() {
 if [ "$restore_only" = yes ]; then
 	check_group || exit 1
 	if [ "$if_mixed" = yes ] && [ "$held" != mixed ]; then
+		echo "held=$held"
 		echo "the bucket holds the $held database group whole; nothing is put back"
 		exit 0
 	fi
