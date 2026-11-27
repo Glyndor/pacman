@@ -2,7 +2,8 @@
 #
 # publish.sh end to end against a bucket that is a folder, a real HTTP server on that folder and a stand-in for the
 # Cloudflare API: upload, purge, read back. A red run has to leave the repository whole: when what is served is not what
-# was uploaded, or the purge is refused, the previous database group is written again and the edge is told.
+# was uploaded, or the purge is refused, the previous database group is written again and the edge is told. A served
+# state that has expired is published over with the read, the signer and the upload that a run uses, one after another.
 #
 # Requires: gpg, python3, zstd, curl.
 set -euo pipefail
@@ -50,7 +51,8 @@ signed() { # <packages dir> <served dir> <now>: $T is a signed tree, $P the key,
 	N=$((N + 1)); T="$WORK/t$N"
 	make_tree "$T" "$1"/*.pkg.tar.zst
 	GLYNDOR_PACMAN_GPG_PRIVATE_KEY="$(cat "$WORK/key/secret.asc")" bash "$HERE/scripts/sign/sign-tree.sh" --tree "$T" --manifest "$T.manifest" --pkginfo "$T.pkginfo.json" \
-		--served "$2" --public-key "$WORK/key/pub.asc" --fingerprint "$FPR" --now "$3" > /dev/null
+		--served "$2" --public-key "$WORK/key/pub.asc" --fingerprint "$FPR" --now "$3" > "$WORK/sign.out" 2>&1 \
+		|| { check "the tree of $1 is signed over $2" "signed" "$(tail -n 1 "$WORK/sign.out")"; finish; exit 1; }
 	P="$WORK/pages$N"; mkdir -p "$P/install"
 	printf 'KEY' > "$P/glyndor-pacman-key.asc"; printf '<html>' > "$P/index.html"; printf '#!/bin/sh\n' > "$P/install/acme"
 	PREV="$WORK/prev$N"; mkdir -p "$PREV"; D="$T/arch/x86_64"
@@ -137,6 +139,35 @@ rm -f "$WORK/state/"*.log
 check "the update succeeds" "0" "$(rc_of publish "$V1" "$T1")"
 check "the bucket holds the new database" "$V2DB" "$(db)"
 check "the new package is served" "yes" "$([ -f "$WORK/bucket/arch/x86_64/acme-1.2.3-1-x86_64.pkg.tar.zst" ] && echo yes || echo no)"
+
+echo "-- a publication over a served state that has expired"
+# What the run reads is what the signer and the upload are given, with nothing rebuilt by the test in between.
+echo none > "$WORK/floor-none"
+read_served() { # <out> <now> [options]
+	bash "$HERE/scripts/metadata/read-served.sh" --url "$URL" --out "$1" --key "$WORK/key/pub.asc" --floor "$WORK/floor-none" --now "$2" "${@:3}"
+}
+# Dates long gone by, so that the state has expired for a step that reads the clock as well as for one that is given the time.
+OLD="2020-01-01T06:00:00Z"; LATE="2020-03-01T06:00:00Z"
+mkdir -p "$WORK/pk3"
+python3 -I "$FIXTURES/mkpkg.py" "$WORK/pk3/acme-1.2.4-1-x86_64.pkg.tar.zst" acme 1.2.4-1 x86_64
+rm -rf "$WORK/bucket/arch" "$WORK/bucket/.meta"
+signed "$WORK/pk2" "$WORK/first" "$OLD"; OLDDB="$(sha256sum "$D/glyndor.db.tar.zst" | cut -d' ' -f1)"
+check "a repository is published and its time goes by" "0" "$(rc_of publish "$WORK/first" "$OLD")"
+check "the read that starts a publication refuses it" "1 1" \
+	"$(rc_of read_served "$WORK/unnamed" "$LATE") $(says 'the state expired at 2020-01-15T06:00:00Z')"
+check "and takes it when it is named" "0" "$(rc_of read_served "$WORK/late" "$LATE" --expired-state "1 $OLDDB")"
+signed "$WORK/pk3" "$WORK/late" "$LATE"; NEWDB="$(sha256sum "$D/glyndor.db.tar.zst" | cut -d' ' -f1)"
+rm -f "$WORK/state/"*.log; : > "$WORK/state/purge-fails"
+check "a publication over it that fails leaves the expired repository as it was" "1 yes" \
+	"$(rc_of publish "$WORK/late" "$LATE") $([ "$(db)" = "$OLDDB" ] && cmp -s "$WORK/bucket/arch/x86_64/glyndor.state" "$WORK/late/state" && echo yes || echo no)"
+rm -f "$WORK/state/purge-fails" "$WORK/state/"*.log
+check "the publication over it succeeds, with its read back" "0" "$(rc_of publish "$WORK/late" "$LATE")"
+check "and prints the state it published, the next one" "1" "$(says "the state published: 2 $NEWDB")"
+check "the bucket holds the new database" "$NEWDB" "$(db)"
+check "the read that starts the next publication takes it with nothing named" "0" "$(rc_of read_served "$WORK/after" "$LATE")"
+check "it is the next sequence, valid for 14 days from the moment it was signed" "2 $LATE 2020-03-15T06:00:00Z" \
+	"$(for k in sequence generated valid-until; do python3 -I "$HERE/scripts/metadata/dbtool.py" state-get "$WORK/after/state" "$k"; done | paste -sd' ')"
+
 check "the option that is not known" "2" "$(rc_of bash "$SCRIPT" --nope x)"
 check "no option at all" "2" "$(rc_of bash "$SCRIPT")"
 
