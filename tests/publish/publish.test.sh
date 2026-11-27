@@ -12,6 +12,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$HERE/tests/fixtures/pacman/lib.sh"
 # shellcheck disable=SC1091 # the shared fixtures
 . "$HERE/tests/fixtures/pacman/repo.sh"
+# The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
+# closed on the way out, and none of them is left running.
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
+close_agents() {
+	local dir
+	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
+		[ -d "$dir" ] || continue
+		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+	done
+}
 SCRIPT="$HERE/scripts/publish/publish.sh"
 make_gpg_key "$WORK/key"
 FPR="$(cat "$WORK/key/fpr")"
@@ -22,7 +33,7 @@ export AWS_ACCESS_KEY_ID=id AWS_SECRET_ACCESS_KEY=secret AWS_ENDPOINT_URL=https:
 export FAKE_BUCKET="$WORK/bucket" FAKE_LOG="$WORK/log"
 python3 -I "$FIXTURES/server.py" "$WORK/bucket" "$WORK/port" --state "$WORK/state" &
 SERVER=$!
-trap 'kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
+trap 'close_agents; kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
 until [ -s "$WORK/port" ]; do sleep 0.1; done
 CF_API="http://127.0.0.1:$(cat "$WORK/port")"
 export CF_API CF_ZONE=0123456789abcdef0123456789abcdef CF_TOKEN=token0123456789

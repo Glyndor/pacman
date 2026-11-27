@@ -14,6 +14,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$HERE/tests/fixtures/pacman/lib.sh"
 # shellcheck disable=SC1091 # the shared fixtures
 . "$HERE/tests/fixtures/pacman/repo.sh"
+# The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
+# closed on the way out, and none of them is left running.
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
+close_agents() {
+	local dir
+	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
+		[ -d "$dir" ] || continue
+		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+	done
+}
 SCRIPT="$HERE/scripts/publish/verify-published.sh"
 NOW="2026-11-23T06:00:00Z"
 make_gpg_key "$WORK/key"
@@ -28,7 +39,7 @@ GLYNDOR_PACMAN_GPG_PRIVATE_KEY="$(cat "$WORK/key/secret.asc")" bash "$HERE/scrip
 printf 'KEY' > "$WORK/tree/glyndor-pacman-key.asc"; printf '<html>' > "$WORK/tree/index.html"; mkdir -p "$WORK/tree/install"; printf '#!/bin/sh\n' > "$WORK/tree/install/acme"
 python3 -I "$FIXTURES/server.py" "$WORK/site" "$WORK/port" --state "$WORK/state" &
 SERVER=$!
-trap 'kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
+trap 'close_agents; kill "$SERVER" 2> /dev/null || true; rm -rf "$WORK"' EXIT
 until [ -s "$WORK/port" ]; do sleep 0.1; done
 URL="http://127.0.0.1:$(cat "$WORK/port")"
 rc_of() { local rc=0; "$@" > "$WORK/last.out" 2>&1 || rc=$?; echo "$rc"; }

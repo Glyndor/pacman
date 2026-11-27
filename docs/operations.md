@@ -50,7 +50,9 @@ the run and the date the artifacts expire, 14 days after the run.
    the one that run was writing, and the six are neither group whole: then it puts
    the previous group back. A group that is one of the two whole is left as it is.
 3. It purges the edge and reads the repository the way the next publication does.
-   Then start a new publication.
+   Then start a new publication. If the recovery says the state it left has expired,
+   that publication needs the `expired_state` input with the values the recovery
+   printed in "the state published:".
 
 When it refuses because an object is neither, something else wrote to the bucket:
 find out what before anything is written. It also writes nothing when the previous
