@@ -71,7 +71,7 @@ bash "$HERE/scripts/publish/purge-cache.sh" --url "$url" --tree "$tree"
 
 read_args=(--url "$url" --key "$pub" --floor "$floor")
 # An expired previous state is what is served now, unless the dead run had written the whole of the new one.
-if [ -n "$expired" ] && ! grep -q 'holds the new database group whole' "$work/restore.log"; then
+if [ -n "$expired" ] && ! grep -qx 'held=new' "$work/restore.log"; then
 	read_args+=(--expired-state "$expired")
 fi
 [ -z "$now" ] || read_args+=(--now "$now")

@@ -58,6 +58,7 @@ restore() { # <previous dir> <tree> [--if-mixed]
 }
 rc_of() { local rc=0; "$@" > "$WORK/last.out" 2>&1 || rc=$?; echo "$rc"; }
 says() { grep -c -F -- "$1" "$WORK/last.out" || true; }
+marks() { grep -c -x -F -- "held=$1" "$WORK/last.out" || true; }
 changes() { grep -c . "$FAKE_LOG" || true; }
 fresh_bucket() { rm -rf "$FAKE_BUCKET" "$FAKE_LOG"; mkdir -p "$FAKE_BUCKET"; : > "$FAKE_LOG"; }
 # whole <tree>: yes when the six objects of the bucket are those of the tree
@@ -105,9 +106,15 @@ cut_after "$V1PREV" "$T1" glyndor.state.sig
 check "a publication killed after its last write left the new repository whole: it is not taken back" "0 0 yes" \
 	"$(rc_of restore "$V1PREV" "$T" --if-mixed) $(changes) $(whole "$T")"
 check "and the run says what the bucket holds" "1" "$(says 'holds the new database group whole')"
+check "with the line that a recovery reads, and not the other one" "1 0" "$(marks new) $(marks previous)"
 at_v1
 check "a bucket that still serves the previous repository whole is not written" "0 0" "$(rc_of restore "$V1PREV" "$T" --if-mixed) $(changes)"
 check "and the run says so" "1" "$(says 'holds the previous database group whole')"
+check "with the line of the previous group, and not the other one" "1 0" "$(marks previous) $(marks new)"
+at_v1
+cut_after "$V1PREV" "$T1" glyndor.db
+check "a restore that puts the previous group back prints neither line" "0 0 0" \
+	"$(rc_of restore "$V1PREV" "$T" --if-mixed) $(marks previous) $(marks new)"
 
 echo "-- a third content is never written over"
 for f in "${GROUP[@]}"; do
