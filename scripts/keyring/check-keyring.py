@@ -52,7 +52,10 @@ def fingerprint_of(key_bytes):
 		os.chmod(home, 0o700)
 		out = subprocess.run(["gpg", "--homedir", home, "--batch", "--with-colons", "--import-options", "show-only", "--import"],
 			input=key_bytes, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False).stdout.decode("utf-8", "replace")
+		# The agent of the temporary home is closed before the folder goes, and the folder of sockets GnuPG made for it
+		# goes with it: none is left running, and none is left behind.
 		subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+		subprocess.run(["gpgconf", "--homedir", home, "--remove-socketdir"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 	finally:
 		shutil.rmtree(home, ignore_errors=True)
 	rows = [line.split(":") for line in out.splitlines()]

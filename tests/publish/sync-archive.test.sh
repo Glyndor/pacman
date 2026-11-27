@@ -17,7 +17,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$HERE/tests/fixtures/pacman/repo.sh"
 SCRIPT="$HERE/scripts/publish/sync-archive.sh"
 # The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
-# closed on the way out, and none of them is left running.
+# closed on the way out, and the folder of sockets GnuPG made for each one is removed with it: none is left running,
+# and none is left behind.
 export TMPDIR="$WORK/tmp"
 mkdir -p "$TMPDIR"
 close_agents() {
@@ -25,6 +26,7 @@ close_agents() {
 	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
 		[ -d "$dir" ] || continue
 		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+		gpgconf --homedir "$dir" --remove-socketdir > /dev/null 2>&1 || true
 	done
 }
 trap 'close_agents; rm -rf "$WORK"' EXIT
@@ -261,6 +263,7 @@ cp "$WORK/pk2/acme-1.2.3-1-x86_64.pkg.tar.zst" "$D/"
 gpg --homedir "$WORK/signhome" --batch --quiet --import "$WORK/key/secret.asc" 2> /dev/null || { mkdir -m 700 "$WORK/signhome"; gpg --homedir "$WORK/signhome" --batch --quiet --import "$WORK/key/secret.asc" 2> /dev/null; }
 gpg --homedir "$WORK/signhome" --batch --yes --quiet --pinentry-mode loopback --passphrase '' --detach-sign --output "$D/acme-1.2.3-1-x86_64.pkg.tar.zst.sig" "$D/acme-1.2.3-1-x86_64.pkg.tar.zst"
 gpgconf --homedir "$WORK/signhome" --kill all > /dev/null 2>&1 || true
+gpgconf --homedir "$WORK/signhome" --remove-socketdir > /dev/null 2>&1 || true
 check "a package with a good signature that the signed database does not list is refused" "5" "$(rc_of sync "$WORK/first" "$T0")"
 check "and says so" "1" "$(says 'not the ones the signed database lists')"
 check "and nothing was written" "0" "$(puts)"

@@ -35,7 +35,9 @@ fi
 [ ! -e "$out" ] || { echo "::error::$out already exists" >&2; exit 2; }
 export SOURCE_DATE_EPOCH="$epoch"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it goes
+# with it: none is left running, and none is left behind.
+trap 'gpgconf --homedir "$work/gnupg" --kill all > /dev/null 2>&1 || true; gpgconf --homedir "$work/gnupg" --remove-socketdir > /dev/null 2>&1 || true; rm -rf "$work"' EXIT
 home="$work/gnupg"
 mkdir -m 700 "$home"
 fingerprints="$(gpg --homedir "$home" --batch --with-colons --import-options show-only --import "$key" 2> /dev/null | awk -F: '$1 == "fpr" { print $10 }')" || fingerprints=''

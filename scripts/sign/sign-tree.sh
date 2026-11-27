@@ -77,7 +77,12 @@ work="$(mktemp -d)"
 home="$work/gnupg"
 mkdir -m 700 "$home"
 cleanup() {
+	# The agents of the two temporary keyrings are closed before their folder goes, and the folder of sockets GnuPG made
+	# for each one goes with it: none is left running, and none is left behind.
 	gpgconf --homedir "$home" --kill all > /dev/null 2>&1 || true
+	gpgconf --homedir "$home" --remove-socketdir > /dev/null 2>&1 || true
+	gpgconf --homedir "$work/verify" --kill all > /dev/null 2>&1 || true
+	gpgconf --homedir "$work/verify" --remove-socketdir > /dev/null 2>&1 || true
 	rm -rf "$work"
 }
 trap cleanup EXIT

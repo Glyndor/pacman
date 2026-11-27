@@ -29,7 +29,9 @@ done
 [ -n "$url" ] || { echo "::error::usage: check-served.sh --url <base> [--key <file>] [--out <dir>]" >&2; exit 2; }
 url="${url%/}"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it goes
+# with it: none is left running, and none is left behind.
+trap 'gpgconf --homedir "$work/gnupg" --kill all > /dev/null 2>&1 || true; gpgconf --homedir "$work/gnupg" --remove-socketdir > /dev/null 2>&1 || true; rm -rf "$work"' EXIT
 [ -n "$out" ] || out="$work/served"
 at=()
 [ -z "$now" ] || at=(--now "$now")

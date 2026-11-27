@@ -27,11 +27,14 @@ WORK="$(mktemp -d)"
 # Every agent this test starts lives in a scratch home under $WORK and is stopped by
 # naming that home, with a bound: a bare `gpgconf --kill` would stop the agent of
 # whoever runs the test, and an agent that hangs would keep the rm from running.
+# The folder of sockets GnuPG made for each one is removed with it: none is left
+# running, and none is left behind.
 stop_agents() {
 	local h
 	for h in "$WORK"/home "$WORK"/gen-*; do
 		[ -d "$h" ] || continue
 		GNUPGHOME="$h" timeout 10 gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+		GNUPGHOME="$h" timeout 10 gpgconf --remove-socketdir >/dev/null 2>&1 || true
 	done
 }
 trap 'stop_agents; rm -rf "$WORK"' EXIT
@@ -102,6 +105,7 @@ keygen() { # <name> <algo> <expire> <uid>: an armored public key in $WORK/<name>
 	GNUPGHOME="$h" gpg --batch --no-tty --armor --export > "$WORK/$1.asc"
 	GNUPGHOME="$h" gpg --batch --no-tty --armor --export-secret-keys > "$WORK/$1.secret.asc" 2>/dev/null || true
 	GNUPGHOME="$h" timeout 10 gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+	GNUPGHOME="$h" timeout 10 gpgconf --remove-socketdir >/dev/null 2>&1 || true
 }
 
 # A key with the right shape and a different identity: the fingerprint is the only
