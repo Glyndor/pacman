@@ -15,7 +15,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$HERE/tests/fixtures/pacman/repo.sh"
 SCRIPT="$HERE/scripts/publish/sync-archive.sh"
 # The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
-# closed on the way out, and none of them is left running.
+# closed on the way out, and the folder of sockets GnuPG made for each one is removed with it: none is left running,
+# and none is left behind.
 export TMPDIR="$WORK/tmp"
 mkdir -p "$TMPDIR"
 close_agents() {
@@ -23,6 +24,7 @@ close_agents() {
 	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
 		[ -d "$dir" ] || continue
 		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+		gpgconf --homedir "$dir" --remove-socketdir > /dev/null 2>&1 || true
 	done
 }
 trap 'close_agents; rm -rf "$WORK"' EXIT

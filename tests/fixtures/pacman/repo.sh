@@ -13,7 +13,10 @@ make_gpg_key() {
 	gpg --homedir "$home" --batch --armor --export "$fpr" > "$1/pub.asc"
 	gpg --homedir "$home" --batch --armor --export-secret-keys "$fpr" > "$1/secret.asc"
 	printf '%s\n' "$fpr" > "$1/fpr"
+	# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it
+	# goes with it: none is left running, and none is left behind.
 	gpgconf --homedir "$home" --kill all > /dev/null 2>&1 || true
+	gpgconf --homedir "$home" --remove-socketdir > /dev/null 2>&1 || true
 }
 
 # make_tree <dest> <package file>...: <dest>/arch/x86_64 with the packages (no database, nothing signed), and

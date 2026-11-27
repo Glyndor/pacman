@@ -64,7 +64,9 @@ url="${url%/}"
 [ ! -e "$out" ] || { echo "::error::$out already exists" >&2; exit 2; }
 mkdir -p "$out"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it goes
+# with it: none is left running, and none is left behind.
+trap 'gpgconf --homedir "$work/gnupg" --kill all > /dev/null 2>&1 || true; gpgconf --homedir "$work/gnupg" --remove-socketdir > /dev/null 2>&1 || true; rm -rf "$work"' EXIT
 base="$url/arch/x86_64"
 names=(glyndor.db.tar.zst glyndor.db.tar.zst.sig glyndor.db glyndor.db.sig glyndor.state glyndor.state.sig)
 

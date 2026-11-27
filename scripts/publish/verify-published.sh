@@ -42,7 +42,9 @@ fi
 url="${url%/}"
 dir="$tree/arch/x86_64"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it goes
+# with it: none is left running, and none is left behind.
+trap 'gpgconf --homedir "$work/gnupg" --kill all > /dev/null 2>&1 || true; gpgconf --homedir "$work/gnupg" --remove-socketdir > /dev/null 2>&1 || true; rm -rf "$work"' EXIT
 home="$work/gnupg"
 mkdir -m 700 "$home"
 gpg --homedir "$home" --batch --quiet --import "$pub" 2> /dev/null || { echo "::error::cannot import the public key" >&2; exit 2; }

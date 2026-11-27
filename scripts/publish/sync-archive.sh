@@ -45,8 +45,9 @@ export LC_ALL=C
 started=no write_mode=no work=""
 on_exit() {
 	local code=$?
-	# The agent of the temporary keyring is closed before its folder goes: none is left running.
-	[ -z "$work" ] || { gpgconf --homedir "$work/gnupg" --kill all > /dev/null 2>&1 || true; rm -rf "$work"; }
+	# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it
+	# goes with it: none is left running, and none is left behind.
+	[ -z "$work" ] || { gpgconf --homedir "$work/gnupg" --kill all > /dev/null 2>&1 || true; gpgconf --homedir "$work/gnupg" --remove-socketdir > /dev/null 2>&1 || true; rm -rf "$work"; }
 	if [ "$code" -ne 0 ] && [ "$started" = no ] && [ "$write_mode" = yes ]; then exit 5; fi
 }
 trap on_exit EXIT

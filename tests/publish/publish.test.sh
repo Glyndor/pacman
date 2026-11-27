@@ -13,7 +13,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck disable=SC1091 # the shared fixtures
 . "$HERE/tests/fixtures/pacman/repo.sh"
 # The temporary keyrings the run makes are all under $WORK, the ones the scripts make included: every one of them is
-# closed on the way out, and none of them is left running.
+# closed on the way out, and the folder of sockets GnuPG made for each one is removed with it: none is left running,
+# and none is left behind.
 export TMPDIR="$WORK/tmp"
 mkdir -p "$TMPDIR"
 close_agents() {
@@ -21,6 +22,7 @@ close_agents() {
 	for dir in "$WORK"/*/home "$WORK"/signhome "$TMPDIR"/*/gnupg "$TMPDIR"/*/verify; do
 		[ -d "$dir" ] || continue
 		gpgconf --homedir "$dir" --kill all > /dev/null 2>&1 || true
+		gpgconf --homedir "$dir" --remove-socketdir > /dev/null 2>&1 || true
 	done
 }
 SCRIPT="$HERE/scripts/publish/publish.sh"
@@ -110,6 +112,7 @@ cp -r "$T" "$WORK/tcopy6"; cp "$WORK/pk1/acme-1.2.2-1-x86_64.pkg.tar.zst" "$WORK
 mkdir -m 700 "$WORK/signhome"; gpg --homedir "$WORK/signhome" --batch --quiet --import "$WORK/key/secret.asc" 2> /dev/null
 gpg --homedir "$WORK/signhome" --batch --yes --quiet --pinentry-mode loopback --passphrase '' --detach-sign --output "$WORK/tcopy6/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst.sig" "$WORK/tcopy6/arch/x86_64/acme-1.2.2-1-x86_64.pkg.tar.zst"
 gpgconf --homedir "$WORK/signhome" --kill all > /dev/null 2>&1 || true
+gpgconf --homedir "$WORK/signhome" --remove-socketdir > /dev/null 2>&1 || true
 check "a package that the signed database does not list is refused" "1" "$(TREE="$WORK/tcopy6" rc_of publish "$V1" "$T1")"
 check "and says that the packages are not the ones the database lists" "1" "$(says 'not the ones the signed database lists')"
 cp -r "$T" "$WORK/tcopy7"; printf 'other bytes' > "$WORK/tcopy7/arch/x86_64/acme-1.2.3-1-x86_64.pkg.tar.zst"

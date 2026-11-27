@@ -42,6 +42,9 @@ check "the signatures are there for every package, both copies of the database a
 	"$(cd "$D" && echo *.sig)"
 gpg --homedir "$WORK/v" --batch --quiet --import "$WORK/key/pub.asc" 2> /dev/null || { mkdir -m 700 "$WORK/v"; gpg --homedir "$WORK/v" --batch --quiet --import "$WORK/key/pub.asc" 2> /dev/null; }
 gpg --homedir "$WORK/v" --batch --export > "$WORK/ring.gpg"
+# The agent of the temporary keyring is closed before its folder goes, and the folder of sockets GnuPG made for it goes
+# with it: none is left running, and none is left behind.
+trap 'gpgconf --homedir "$WORK/v" --kill all > /dev/null 2>&1 || true; gpgconf --homedir "$WORK/v" --remove-socketdir > /dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
 allgood=0
 for f in "$D"/*.pkg.tar.zst "$D"/glyndor.db "$D"/glyndor.db.tar.zst "$D"/glyndor.state; do
 	gpgv --keyring "$WORK/ring.gpg" "$f.sig" "$f" > /dev/null 2>&1 || allgood=$((allgood + 1))
