@@ -3,10 +3,14 @@
 # verify-sig.py: the release signature of one file, Ed25519 first and always, ML-DSA-65 beside it
 # when it is there. The six cases of the post-quantum design are the ones below: a second signature
 # that may be left out protects nothing, and one that cannot be checked is not one that passed. The
-# three cases that need a real ML-DSA-65 implementation bring their own cryptography: a virtual
+# five cases that need a real ML-DSA-65 implementation bring their own cryptography: a virtual
 # environment is built here with the wheel that scripts/admit/verify-requirements.txt pins by hash,
 # the same file .github/workflows/publish.yml installs. When it cannot be built the suite fails: a
 # case that could not run is not a pass.
+#
+# The last two cases check a fixed vector: an ML-DSA-65 key, a message and the signature over it,
+# made with OpenSSL 3.5.5 in another implementation. A verifier that agrees only with itself
+# refuses that signature, so those cases are what tell the two apart.
 #
 # Requires: python3 with cryptography, and a python3 that can build a virtual environment.
 set -euo pipefail
@@ -88,7 +92,7 @@ check "a bad Ed25519 signature is refused whatever the second one says" "1" "$(r
 check "--require-mldsa without --mldsa-sig is a usage error" "2" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --require-mldsa)"
 check "--mldsa-keys without --mldsa-sig is a usage error" "2" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-keys "$WORK/pq.b64")"
 
-# The three cases below need a cryptography with ML-DSA-65. The one of the runner
+# The five cases below need a cryptography with ML-DSA-65. The one of the runner
 # does not have it, so a virtual environment is built here with the wheel that
 # scripts/admit/verify-requirements.txt pins by hash, the same file
 # .github/workflows/publish.yml installs. When it cannot be built the suite
@@ -120,5 +124,49 @@ PY
 check "both signatures valid: accepted" "0" "$(rc_of verify_pq "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/good.mldsa" --mldsa-keys "$WORK/pq-real.b64" --require-mldsa)"
 check "a second signature by another key: refused" "1" "$(rc_of verify_pq "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/other.mldsa" --mldsa-keys "$WORK/pq-real.b64")"
 check "a valid second signature does not rescue a bad Ed25519 one" "1" "$(rc_of verify_pq "$WORK/file" "$WORK/bad.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/good.mldsa" --mldsa-keys "$WORK/pq-real.b64")"
+
+echo "-- the fixed vector, made with another implementation"
+# The ML-DSA-65 public key, a message and the signature over it, made with
+# OpenSSL 3.5.5 (`openssl genpkey -algorithm ML-DSA-65`) and not with the
+# library under test, the same vector the apt archive checks. A verifier that
+# agrees only with itself would not accept that signature.
+#
+# The versioned files are only read. The message is copied into the scratch
+# folder because the Ed25519 half of the hybrid signature is made here, and
+# that writes the signature beside the file it signs.
+VEC_KEY="$FIXTURES/vector.mldsa65.b64"
+VEC_MSG="$FIXTURES/vector.msg"
+VEC_SIG="$FIXTURES/vector.msg.mldsa65.sig"
+VEC="$WORK/vector"
+mkdir -p "$VEC"
+if [ -f "$VEC_MSG" ]; then
+	cp "$VEC_MSG" "$VEC/msg"
+else
+	# No message to sign: the case below fails because the vector does not
+	# verify, not because the suite could not run.
+	: > "$VEC/msg"
+fi
+python3 -I "$FIXTURES/release-key.py" sign "$KEYS" "$VEC/msg"
+check "the ML-DSA-65 vector made with another implementation verifies" "0" \
+	"$(rc_of verify_pq "$VEC/msg" "$VEC/msg.sig" "$KEYS/release.b64" --mldsa-sig "$VEC_SIG" --mldsa-keys "$VEC_KEY" --require-mldsa)"
+check "and it says both signatures verified" "1" "$(says 'Ed25519 and ML-DSA-65')"
+
+# The same vector with one bit of the signature changed, in a copy inside the
+# scratch folder: the committed file is never touched.
+if [ -f "$VEC_SIG" ]; then
+	cp "$VEC_SIG" "$VEC/msg.mldsa65.changed.sig"
+	python3 -I - "$VEC/msg.mldsa65.changed.sig" <<'PY'
+import sys
+p = sys.argv[1]
+b = bytearray(open(p, "rb").read())
+b[1000] ^= 0x01
+open(p, "wb").write(bytes(b))
+PY
+else
+	: > "$VEC/msg.mldsa65.changed.sig"
+fi
+check "and with one bit of its signature changed it does not verify" "1" \
+	"$(rc_of verify_pq "$VEC/msg" "$VEC/msg.sig" "$KEYS/release.b64" --mldsa-sig "$VEC/msg.mldsa65.changed.sig" --mldsa-keys "$VEC_KEY" --require-mldsa)"
+check "and it says that no key verifies it" "1" "$(says 'no ML-DSA-65 release key verifies')"
 
 finish
