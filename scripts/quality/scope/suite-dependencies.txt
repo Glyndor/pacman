@@ -56,6 +56,7 @@ tests/quality/lint/check-test-job-not-switchable-pins.test.sh python3-yaml
 tests/quality/lint/check-test-job-not-switchable-forms.test.sh python3-yaml
 tests/quality/lint/check-test-job-not-switchable-steps.test.sh python3-yaml
 tests/quality/lint/check-test-job-not-switchable.test.sh python3-yaml
+tests/quality/lint/switch-rule-forms.test.sh python3-yaml
 tests/quality/lint/check-tooling-isolation.test.sh python3-yaml
 tests/quality/lint/lint-workflow-shell.test.sh shellcheck
 tests/quality/lint/no-deprecation-notices.test.sh -
