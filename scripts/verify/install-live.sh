@@ -47,6 +47,7 @@ if [ "$mode" = install ]; then
 	pacman -Syu --noconfirm > /dev/null
 	[ -z "$distro" ] || pacman -S --noconfirm "$distro" > /dev/null
 	installer="$(mktemp)"
+	trap 'rm -f "$installer"' EXIT
 	curl --silent --show-error --fail --location --proto '=https,http' --max-time 60 --connect-timeout 20 --output "$installer" "$base/install/$package"
 	# The command of the README, with its prompts answered: pacman asks before it removes what a package replaces.
 	# shellcheck disable=SC2016 # the inner shell expands INSTALLER
