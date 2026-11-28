@@ -195,6 +195,7 @@ jobs:
         ./tests/ci/policy/rules/workflow-network-calls-are-bounded.test.sh
         ./tests/ci/policy/workflows/commit-hygiene-base-rule.test.sh
         ./tests/ci/policy/workflows/dependabot-config.test.sh
+        ./tests/ci/policy/workflows/every-reusable-has-a-caller.test.sh
         ./tests/ci/policy/workflows/gate-job.test.sh
         ./tests/ci/policy/workflows/no-write-permissions.test.sh
         ./tests/ci/policy/workflows/persist-credentials.test.sh

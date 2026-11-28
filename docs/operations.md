@@ -90,7 +90,7 @@ and neither do `verify` and `verify-live.yml`.
 |---|---|---|
 | `tests.yml` | every pull request | the checks of a pull request that are this repository's own (see [CONTRIBUTING.md](../CONTRIBUTING.md)) |
 | `codeql.yml` | pull requests into `main`, pushes to `main`, Mondays 05:23 UTC | the analysis of the workflows and of the Python |
-| `freshness.yml` | twice a day (08:13 and 20:13 UTC), pushes to `main`, and pull requests that change the watchers | the watchers of the crons (`codeql.yml` and itself) and the check that the pinned `shellcheck` and `actionlint` keep up with upstream |
+| `freshness.yml` | twice a day (08:13 and 20:13 UTC), pushes to `main`, and pull requests that change the watchers | the watchers of the crons (`codeql.yml` and itself), the watcher of Dependabot, which fails when it has opened no pull request for fifteen days and a pin is behind, and the check that the pinned `shellcheck` and `actionlint` keep up with upstream |
 | `recover.yml` | by hand | the previous database group put back over a publication that left it half written, purged and read back (see above) |
 | `publication-notice.yml` | the end of a publication | an issue when it did not succeed and may have written, with the run and the date its artifacts expire |
 | `verify-live.yml` | by hand | the published repository read from the public address and installed on the Arch the packages were built on (`pinned`) and on the Arch of today (`current`), and that no package of it is older than the one Arch carries (`distro-newer`) |

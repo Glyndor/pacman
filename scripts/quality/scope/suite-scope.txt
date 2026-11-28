@@ -408,6 +408,10 @@ tests/ci/policy/workflows/publish-rerun-guard.test.sh
 	.github/workflows/**
 	tests/ci/policy/workflows/**
 
+tests/ci/policy/workflows/every-reusable-has-a-caller.test.sh
+	.github/workflows/**
+	tests/ci/policy/workflows/**
+
 tests/ci/policy/workflows/reusable-caller-permissions.test.sh
 	.github/workflows/**
 	tests/ci/policy/workflows/**

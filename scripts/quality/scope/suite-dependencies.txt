@@ -18,6 +18,7 @@ tests/ci/policy/rules/locale-pinned.test.sh -
 tests/ci/policy/rules/network-calls-are-bounded.test.sh -
 tests/ci/policy/rules/workflow-network-calls-are-bounded.test.sh -
 tests/ci/policy/workflows/commit-hygiene-base-rule.test.sh -
+tests/ci/policy/workflows/every-reusable-has-a-caller.test.sh python3-yaml
 tests/ci/policy/workflows/required-check-names.test.sh python3-yaml
 tests/ci/policy/workflows/workflow-files.test.sh python3-yaml
 tests/ci/policy/workflows/dependabot-config.test.sh python3-yaml
