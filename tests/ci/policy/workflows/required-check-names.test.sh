@@ -62,7 +62,7 @@ workflow-lint / workflow-lint"
 # the pull request of the first publication, which adds `schedule` to the events of the row and a watcher for each cron. Any other workflow runs on pull_request alone.
 # The recovery of a publication runs by hand, and the notice of one that did not finish when a publication ends.
 NOT_PR="codeql.yml	pull_request push schedule	Analyze (actions)|Analyze (python)	yes
-freshness.yml	pull_request push schedule	freshness-codeql / schedule freshness|freshness-itself / schedule freshness|pinned tool versions keep up with upstream	yes
+freshness.yml	pull_request push schedule	freshness-codeql / schedule freshness|freshness-itself / schedule freshness|dependabot-freshness / dependabot freshness|pinned tool versions keep up with upstream	yes
 publish.yml	workflow_dispatch	admit|build|sign|publish|verify / served|verify / install	yes
 publication-notice.yml	workflow_run	notice	yes
 recover.yml	workflow_dispatch	recover	yes
@@ -164,7 +164,7 @@ rm "$d/.github/workflows/codeql.yml"
 check "removing codeql.yml leaves both analysis names missing" "$(printf 'missing from the workflows: Analyze (actions)\nmissing from the workflows: Analyze (python)')" "$(offences "$d")"
 d="$(cp_repo no-freshness)"
 rm "$d/.github/workflows/freshness.yml"
-check "removing freshness.yml leaves the names of its three watchers missing" "$(printf 'missing from the workflows: freshness-codeql / schedule freshness\nmissing from the workflows: freshness-itself / schedule freshness\nmissing from the workflows: pinned tool versions keep up with upstream')" "$(offences "$d")"
+check "removing freshness.yml leaves the names of its four watchers missing" "$(printf 'missing from the workflows: dependabot-freshness / dependabot freshness\nmissing from the workflows: freshness-codeql / schedule freshness\nmissing from the workflows: freshness-itself / schedule freshness\nmissing from the workflows: pinned tool versions keep up with upstream')" "$(offences "$d")"
 d="$(cp_repo one-analysis)"
 sed -i 's/^    name: Analyze (python)$/    name: Analyze (py)/' "$d/.github/workflows/codeql.yml"
 check "renaming one analysis job leaves its name missing, and the new one is not in the list" \

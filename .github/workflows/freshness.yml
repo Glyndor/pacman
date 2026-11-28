@@ -24,9 +24,11 @@ on:
   pull_request:
     paths:
       - .github/workflows/freshness.yml
+      - .github/workflows/reusable-dependabot-freshness.yml
       - .github/workflows/reusable-schedule-freshness.yml
       - .github/workflows/reusable-shell-ci.yml
       - .github/workflows/reusable-workflow-lint.yml
+      - .github/dependabot.yml
       - scripts/monitoring/check-tool-versions.sh
   push:
     branches: [main]
@@ -65,6 +67,20 @@ jobs:
       workflow: freshness.yml
       max-age-days: 2
       count-any-conclusion: true
+
+  # Dependabot is not a workflow: it is an integration with its own schedule, and a silent Dependabot emits nothing. The newest
+  # pull request it opened is the last time it spoke, and when that is old and some pin of the workflows or of the requirements is
+  # behind, the silence is the alert it never sent. Fifteen days, well above one missed run of a daily Dependabot: it opens a
+  # pull request only when there is an upstream update, so a healthy but idle Dependabot is expected to be quiet for stretches.
+  # The watcher reads the pull requests of this repository and the pins of the workflows and of the requirements the dependabot.yml
+  # hands to the pip ecosystem, so the pull request that changes what it looks at is the one that runs it.
+  dependabot-freshness:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/reusable-dependabot-freshness.yml
+    with:
+      max-age-days: 15
 
   # shellcheck and actionlint decide a required check, and each is pinned by version and sha256 inside a reusable workflow. Dependabot
   # moves `uses:` pins and nothing else, so a version written as a value had no update path: a frozen linter stays green while the
