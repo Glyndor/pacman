@@ -3,8 +3,7 @@
 # dbtool.py: what a SERVED database says, read as hostile input, and the state a signature will cover.
 # pacman has no expiry or counter in its database, so the state is the only thing that says a repository
 # is not frozen or turned back: it has to be current, strictly newer than the one before, about exactly the
-# database that is served, and it keeps a replaced package listed until the metadata that names it cannot be
-# valid any more. Each case below breaks one of those on purpose.
+# database that is served, and it keeps every replaced package listed, since the bucket keeps them all. Each case below breaks one of those on purpose.
 #
 # Requires: python3, zstd.
 set -euo pipefail
@@ -244,7 +243,58 @@ printf 'acme\t1.2.3-1\tabc\t%s\n' "$A" > "$WORK/served-now.tsv"
 make_state state4 "$WORK/state2" 2026-11-30T06:00:00Z "$WORK/served-now.tsv"
 check "a retired package is carried to the next state with its first dates" "acme-1.2.2-1-x86_64.pkg.tar.zst 2026-11-24T06:00:00Z 2026-12-09T06:00:00Z" "$(tool state-get "$WORK/state4" retired)"
 make_state state5 "$WORK/state4" 2026-12-17T06:00:00Z "$WORK/served-now.tsv"
-check "and is dropped a week after its delete-after date" "" "$(tool state-get "$WORK/state5" retired)"
+check "and is still listed more than a week after its delete-after date, since the bucket still holds it" \
+	"acme-1.2.2-1-x86_64.pkg.tar.zst 2026-11-24T06:00:00Z 2026-12-09T06:00:00Z" "$(tool state-get "$WORK/state5" retired)"
+make_state state5b "$WORK/state5" 2028-12-17T06:00:00Z "$WORK/served-now.tsv"
+check "and two years later, with the same dates" "acme-1.2.2-1-x86_64.pkg.tar.zst 2026-11-24T06:00:00Z 2026-12-09T06:00:00Z" \
+	"$(tool state-get "$WORK/state5b" retired)"
+
+cp "$WORK/state2" "$WORK/state-back"
+printf 'retired: %s 2026-11-24T06:00:00Z 2026-12-09T06:00:00Z\n' "$L" >> "$WORK/state-back"
+make_state state5c "$WORK/state-back" 2026-11-30T06:00:00Z "$WORK/served-now.tsv"
+check "a package that is in the database again leaves the list, and the others stay" "acme-1.2.2-1-x86_64.pkg.tar.zst" \
+	"$(tool state-get "$WORK/state5c" retired | cut -d' ' -f1)"
+
+echo "-- a state has a size cap, and none is cut short at it"
+# pad <bytes>: $WORK/state-big is state2 with retired lines added until it is exactly that long, the last one retired-last
+pad() {
+	python3 -I - "$WORK/state2" "$WORK/state-big" "$1" <<'PY'
+import sys
+source, out, want = sys.argv[1], sys.argv[2], int(sys.argv[3])
+text = open(source).read()
+def line(name):
+	return "retired: " + name + "-1-1-x86_64.pkg.tar.zst 2026-11-24T06:00:00Z 2026-12-09T06:00:00Z\n"
+end = line("retired-last")
+number = 0
+while want - len(text) - len(end) >= 2 * len(line("p0000000")):
+	text += line("p%07d" % number)
+	number += 1
+# What is left is one line whose name is as long as it takes.
+text += line("q" * (want - len(text) - len(end) - len(line("")))) + end
+assert len(text) == want, (len(text), want)
+open(out, "w").write(text)
+PY
+}
+CAP=1048576
+pad "$CAP"
+check "a state of exactly 1 MiB is read" "0" "$(rc_of tool state-get "$WORK/state-big" retired)"
+check "to its last line" "1" "$(says 'retired-last-1-1-x86_64.pkg.tar.zst')"
+pad "$((CAP + 1))"
+check "one byte more is refused" "1" "$(rc_of tool state-get "$WORK/state-big" sequence)"
+check "and says why" "1" "$(says 'is larger than 1048576 bytes')"
+# At a line boundary: cut at the cap it would read as a whole state with one retired package less.
+pad "$CAP"
+printf 'retired: z-1-1-x86_64.pkg.tar.zst 2026-11-24T06:00:00Z 2026-12-09T06:00:00Z\n' >> "$WORK/state-big"
+check "a line past the cap is not dropped in silence" "1 1" "$(rc_of tool state-get "$WORK/state-big" retired) $(says 'is larger than')"
+# A state made from one of the same inputs is as long as it: nothing is added, and only digits and times of the same
+# width change. From sequence 9 it is one byte longer.
+pad "$CAP"
+check "a state of exactly 1 MiB is written" "0 $CAP" \
+	"$(rc_of make_state state-at "$WORK/state-big" 2026-11-30T06:00:00Z "$WORK/served-now.tsv") $(stat -c%s "$WORK/state-at")"
+sed -i 's/^sequence: 2$/sequence: 9/' "$WORK/state-big"
+check "a state one byte over is not written" "1 no" \
+	"$(rc_of make_state state-over "$WORK/state-big" 2026-11-30T06:00:00Z "$WORK/served-now.tsv") $([ -e "$WORK/state-over" ] && echo yes || echo no)"
+check "and says that it is not written" "1" "$(says 'it is not written')"
 check "a state made over an existing file is refused" "1" "$(rc_of tool state-make --previous - --db "$WORK/db.tar.zst" --now "$NOW" --served "$WORK/served-empty.tsv" --out "$WORK/state1")"
 check "a previous state that is malformed is refused" "1" "$(printf 'junk\n' > "$WORK/state-junk"; rc_of make_state state6 "$WORK/state-junk" "$NOW" "$SERVED")"
 check "a time that is not a time is refused" "1" "$(rc_of make_state state7 - yesterday "$WORK/served-empty.tsv")"

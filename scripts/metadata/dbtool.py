@@ -14,9 +14,11 @@ SIGNS is not read from anywhere: mkdb.py writes it from what was admitted.
 
 pacman has no expiry or counter in its database, so the repository carries its own: `state-make` writes the
 state a signature will cover (a sequence number, the time, when it stops being valid, the hash of the databases
-and which packages were replaced and until when they stay), and `state-check` refuses one that is expired, from
-the future, or about another database. With --to-replace an expired one passes, with a warning: that is how a
-publication reads the state it is about to replace, once read-served.sh has compared it with the recorded one.
+and every package that was replaced, none of which leaves the list because the bucket keeps them all), and
+`state-check` refuses one that is expired, from the future, or about another database. With --to-replace an expired one
+passes, with a warning: that is how a publication reads the state it is about to replace, once read-served.sh has
+compared it with the recorded one. A state over 1 MiB is neither written nor read: a reader that stopped at the cap would
+drop the end of the list without saying so.
 
 Exit 0 done, 1 refused.
 """
@@ -36,6 +38,7 @@ MAX_DESC_BYTES = 256 * 1024
 VALID_DAYS = 14
 KEEP_DAYS = VALID_DAYS + 1
 FUTURE_SECONDS = 300
+MAX_STATE_BYTES = 1 << 20
 FILE_RE = re.compile(r"^[A-Za-z0-9@_+][A-Za-z0-9@._+-]*-[^/\s-]+-[0-9]+-(x86_64|any)\.pkg\.tar\.zst$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -204,7 +207,9 @@ def cmd_entries(args):
 def parse_state(path):
 	state, retired = {}, []
 	with open(path, "rb") as f:
-		raw = f.read(1 << 20)
+		raw = f.read(MAX_STATE_BYTES + 1)
+	if len(raw) > MAX_STATE_BYTES:
+		raise Refused(f"{path} is larger than {MAX_STATE_BYTES} bytes")
 	if any(b != 0x0A and not 0x20 <= b <= 0x7E for b in raw):
 		raise Refused(f"{path} holds a byte that is neither printable ASCII nor a line feed")
 	for number, line in enumerate(raw.decode("ascii").split("\n"), 1):
@@ -255,8 +260,8 @@ def cmd_state_make(args):
 			if filename not in current and filename not in listed:
 				delete_after = now + datetime.timedelta(days=KEEP_DAYS)
 				retired.append((filename, now.strftime(TIME_FORMAT), delete_after.strftime(TIME_FORMAT)))
-	horizon = now - datetime.timedelta(days=7)
-	retired = sorted(item for item in retired if item[0] not in current and parse_time(item[2]) > horizon)
+	# Nothing leaves the list for being old: the cleanup deletes nothing, and the list is what says what the bucket keeps.
+	retired = sorted(item for item in retired if item[0] not in current)
 	lines = [
 		"glyndor-pacman-state: 1", "repository: glyndor", "architecture: x86_64", f"sequence: {sequence}",
 		f"generated: {now.strftime(TIME_FORMAT)}",
@@ -264,9 +269,12 @@ def cmd_state_make(args):
 		f"db-sha256: {sha256_of(args.db)}", f"packages: {len(rows)}",
 	]
 	lines += [f"retired: {' '.join(item)}" for item in retired]
+	text = "\n".join(lines) + "\n"
+	if len(text.encode()) > MAX_STATE_BYTES:
+		raise Refused(f"the state would be larger than {MAX_STATE_BYTES} bytes with {len(retired)} retired package files; it is not written")
 	fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
 	with os.fdopen(fd, "w") as out:
-		out.write("\n".join(lines) + "\n")
+		out.write(text)
 	print(f"state {sequence}, {len(rows)} package(s), {len(retired)} retired")
 
 

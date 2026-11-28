@@ -84,6 +84,16 @@ A recovery whose previous state has expired takes the same input in `recover.yml
 unless that state is the recorded one. A scheduled run never accepts an expired state,
 and neither do `verify` and `verify-live.yml`.
 
+## What the state keeps listed
+
+Nothing replaced is deleted from the bucket, so the state lists every package file
+that was ever retired, and the cleanup of each publication counts them with their
+size. The list only grows. A state is at most 1 MiB, which is room for about eleven
+thousand files: past that `state-make` refuses to write it and nothing is published.
+The cleanup also asks the bucket for the size of every file listed and of its
+signature, inside the time limit of the `publish` job. A bounded retention, which
+this channel does not have yet, is what takes both limits away.
+
 ## The other workflows
 
 | workflow | when | what |
