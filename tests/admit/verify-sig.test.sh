@@ -3,10 +3,12 @@
 # verify-sig.py: the release signature of one file, Ed25519 first and always, ML-DSA-65 beside it
 # when it is there. The six cases of the post-quantum design are the ones below: a second signature
 # that may be left out protects nothing, and one that cannot be checked is not one that passed. The
-# cases that need an ML-DSA implementation run only where the installed cryptography has one, and say
-# so when it has not.
+# three cases that need a real ML-DSA-65 implementation bring their own cryptography: a virtual
+# environment is built here with the wheel that scripts/admit/verify-requirements.txt pins by hash,
+# the same file .github/workflows/publish.yml installs. When it cannot be built the suite fails: a
+# case that could not run is not a pass.
 #
-# Requires: python3 with cryptography.
+# Requires: python3 with cryptography, and a python3 that can build a virtual environment.
 set -euo pipefail
 export LC_ALL=C
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -27,6 +29,10 @@ rc_of() {
 	echo "$rc"
 }
 verify() { python3 -I "$VERIFY" "$@"; }
+# The cases that carry a second signature are checked with the cryptography that has
+# ML-DSA-65: the one of the virtual environment built below. The Ed25519-only cases
+# keep the system one.
+verify_pq() { "$PQPY" -I "$VERIFY" "$@"; }
 says() { grep -c -- "$1" "$WORK/last.out" || true; }
 
 check "a signature by the listed key verifies" "0" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64")"
@@ -82,8 +88,24 @@ check "a bad Ed25519 signature is refused whatever the second one says" "1" "$(r
 check "--require-mldsa without --mldsa-sig is a usage error" "2" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --require-mldsa)"
 check "--mldsa-keys without --mldsa-sig is a usage error" "2" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-keys "$WORK/pq.b64")"
 
-if python3 -I -c 'from cryptography.hazmat.primitives.asymmetric.mldsa import MLDSA65PrivateKey' 2> /dev/null; then
-	python3 -I - "$WORK" <<'PY'
+# The three cases below need a cryptography with ML-DSA-65. The one of the runner
+# does not have it, so a virtual environment is built here with the wheel that
+# scripts/admit/verify-requirements.txt pins by hash, the same file
+# .github/workflows/publish.yml installs. When it cannot be built the suite
+# fails: a case that could not run is not a pass.
+PQPY=""
+if python3 -m venv "$WORK/venv" >/dev/null 2>&1 \
+	&& "$WORK/venv/bin/python" -m pip install --quiet --disable-pip-version-check --require-hashes \
+		--only-binary=:all: -r "$HERE/scripts/admit/verify-requirements.txt" >/dev/null 2>&1; then
+	PQPY="$WORK/venv/bin/python"
+fi
+if [ -z "$PQPY" ] || ! "$PQPY" -I -c 'from cryptography.hazmat.primitives.asymmetric.mldsa import MLDSA65PrivateKey' 2>/dev/null; then
+	echo "FAIL  no cryptography with ML-DSA-65: install scripts/admit/verify-requirements.txt into a virtual environment"
+	echo "0 passed, 1 failed"
+	printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" 0 1
+	exit 1
+fi
+"$PQPY" -I - "$WORK" <<'PY'
 import base64, sys
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.mldsa import MLDSA65PrivateKey
@@ -95,11 +117,8 @@ pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.Pu
 open(f"{work}/pq-real.b64", "w").write(base64.b64encode(pub).decode() + "\n")
 open(f"{work}/other.mldsa", "wb").write(MLDSA65PrivateKey.generate().sign(data))
 PY
-	check "both signatures valid: accepted" "0" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/good.mldsa" --mldsa-keys "$WORK/pq-real.b64" --require-mldsa)"
-	check "a second signature by another key: refused" "1" "$(rc_of verify "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/other.mldsa" --mldsa-keys "$WORK/pq-real.b64")"
-	check "a valid second signature does not rescue a bad Ed25519 one" "1" "$(rc_of verify "$WORK/file" "$WORK/bad.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/good.mldsa" --mldsa-keys "$WORK/pq-real.b64")"
-else
-	echo "NOTE  this cryptography has no ML-DSA-65: the cases that verify a real second signature were not run here"
-fi
+check "both signatures valid: accepted" "0" "$(rc_of verify_pq "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/good.mldsa" --mldsa-keys "$WORK/pq-real.b64" --require-mldsa)"
+check "a second signature by another key: refused" "1" "$(rc_of verify_pq "$WORK/file" "$WORK/file.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/other.mldsa" --mldsa-keys "$WORK/pq-real.b64")"
+check "a valid second signature does not rescue a bad Ed25519 one" "1" "$(rc_of verify_pq "$WORK/file" "$WORK/bad.sig" "$KEYS/release.b64" --mldsa-sig "$WORK/good.mldsa" --mldsa-keys "$WORK/pq-real.b64")"
 
 finish
